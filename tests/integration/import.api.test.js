@@ -109,6 +109,6 @@ describe('Import API', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .attach('file', buffer, 'test_fatal.xlsx');
       
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(415);
   });
 });

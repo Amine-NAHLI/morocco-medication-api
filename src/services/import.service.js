@@ -32,6 +32,7 @@ class ImportService {
       let created = 0;
       let updated = 0;
       let ignored = 0;
+      let valid = 0;
       let errorsCount = 0;
       const errorLog = [];
 
@@ -45,6 +46,7 @@ class ImportService {
           errorLog.push({ row: i + 2, errors: validation.errors });
           continue;
         }
+        valid++;
 
         const data = validation.data;
         
@@ -184,6 +186,8 @@ class ImportService {
         data: {
           status: finalStatus,
           recordsRead: rawRows.length,
+          recordsValid: valid,
+          recordsRejected: errorsCount,
           recordsCreated: created,
           recordsUpdated: updated,
           errorsCount,

@@ -2,9 +2,19 @@ const express = require('express');
 const multer = require('multer');
 const importController = require('../../../controllers/import.controller');
 const { authenticate, authorize } = require('../../../middlewares/auth.middleware');
+const { getHttpConfig } = require('../../../config/env');
+const ApiError = require('../../../utils/ApiError');
 
-// Store file in memory buffer
-const upload = multer({ storage: multer.memoryStorage() });
+const { maxUploadSize } = getHttpConfig();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxUploadSize, files: 1 },
+  fileFilter: (req, file, callback) => {
+    const accepted = ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'];
+    if (!accepted.includes(file.mimetype) || !file.originalname.toLowerCase().endsWith('.xlsx')) return callback(new ApiError(415, 'Only .xlsx files are accepted'));
+    callback(null, true);
+  },
+});
 
 const router = express.Router();
 

@@ -174,6 +174,8 @@ class CnopsOpenDataConnector extends BaseConnector {
   }
 
   async syncDatabase() {
+    if (this.syncInProgress) return { success: false, status: 'SYNC_ALREADY_RUNNING', message: 'CNOPS synchronization is already running' };
+    this.syncInProgress = true;
     let syncJob = null;
     try {
       let source = await prisma.source.findUnique({ where: { code: this.sourceCode } });
@@ -319,6 +321,8 @@ class CnopsOpenDataConnector extends BaseConnector {
         });
       }
       return { success: false, status: 'SYNC_FAILED', message: error.message };
+    } finally {
+      this.syncInProgress = false;
     }
   }
 }
