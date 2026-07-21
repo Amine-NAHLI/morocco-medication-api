@@ -1,3 +1,4 @@
-// Mute console logs during tests to keep output clean, unless you want to debug.
-// console.log = jest.fn();
-// console.error = jest.fn();
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'dev-secret-key';
+process.env.JWT_REFRESH_SECRET = 'dev-refresh-secret-key';
+process.env.CORS_ORIGINS = 'http://localhost:3000';

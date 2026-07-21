@@ -1,10 +1,10 @@
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('crypto');
 const ApiError = require('../utils/ApiError');
+const { getAuthConfig, validateAuthDurations } = require('../config/env');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-key';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m';
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+validateAuthDurations();
+const { accessSecret: JWT_SECRET, refreshSecret: JWT_REFRESH_SECRET, accessExpiresIn: JWT_EXPIRES_IN, refreshExpiresIn: JWT_REFRESH_EXPIRES_IN } = getAuthConfig();
 
 const generateAccessToken = (user) => {
   return jwt.sign(
@@ -18,7 +18,7 @@ const generateRefreshToken = (user) => {
   return jwt.sign(
     { id: user.id },
     JWT_REFRESH_SECRET,
-    { expiresIn: JWT_REFRESH_EXPIRES_IN }
+    { expiresIn: JWT_REFRESH_EXPIRES_IN, jwtid: randomUUID() }
   );
 };
 

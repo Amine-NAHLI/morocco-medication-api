@@ -27,4 +27,9 @@ const getMe = catchAsync(async (req, res) => {
   formatSuccess(res, req.user, 'User profile retrieved');
 });
 
-module.exports = { register, login, refreshToken, logout, getMe };
+const setRole = catchAsync(async (req, res) => {
+  const user = await authService.setRole(req.user.id, req.params.id, req.body.role);
+  formatSuccess(res, user, 'User role updated successfully');
+});
+
+module.exports = { register, login, refreshToken, logout, getMe, setRole };

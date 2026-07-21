@@ -17,7 +17,9 @@ model User {
   password     String
   name         String?
   role         Role    @default(USER)
-  refreshToken String?
+  // Maps the legacy column without persisting any future refresh token in clear text.
+  refreshTokenHash String? @map("refreshToken")
+  refreshTokenId   String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
