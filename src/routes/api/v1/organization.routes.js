@@ -2,23 +2,31 @@ const express = require('express');
 const { body } = require('express-validator');
 const validate = require('../../../middlewares/validate.middleware');
 const organizationController = require('../../../controllers/organization.controller');
+const { authenticate, authorize } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 router.route('/')
+  .get(organizationController.findAll)
   .post(
-    // Placeholder for express-validator
+    authenticate,
+    authorize('ADMIN'),
     validate,
     organizationController.create
-  )
-  .get(organizationController.findAll);
+  );
 
 router.route('/:id')
   .get(organizationController.findById)
   .put(
+    authenticate,
+    authorize('ADMIN'),
     validate,
     organizationController.update
   )
-  .delete(organizationController.delete);
+  .delete(
+    authenticate,
+    authorize('ADMIN'),
+    organizationController.delete
+  );
 
 module.exports = router;

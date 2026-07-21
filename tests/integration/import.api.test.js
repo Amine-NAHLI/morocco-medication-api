@@ -3,19 +3,23 @@ const app = require('../../src/app');
 jest.mock('../../src/config/prisma');
 const prismaMock = require('../../src/config/prisma');
 const xlsx = require('xlsx');
+const jwt = require('jsonwebtoken');
+
+const adminToken = jwt.sign(
+  { id: 1, email: 'admin@test.com', role: 'ADMIN' },
+  process.env.JWT_SECRET || 'dev-secret-key',
+  { expiresIn: '1h' }
+);
 
 describe('Import API', () => {
   it('should successfully upload and process an Excel file', async () => {
-    // Mock the ImportHistory creation
     prismaMock.importHistory.create.mockResolvedValue({ id: 1 });
     prismaMock.importHistory.update.mockResolvedValue({ id: 1, status: 'SUCCESS' });
     
-    // Mock the Transaction
     prismaMock.$transaction.mockImplementation(async (callback) => {
        return callback(prismaMock);
     });
 
-    // Mock upserts inside the transaction
     prismaMock.manufacturer.upsert.mockResolvedValue({ id: 1 });
     prismaMock.category.upsert.mockResolvedValue({ id: 1 });
     prismaMock.medication.findUnique.mockResolvedValue(null);
@@ -25,7 +29,6 @@ describe('Import API', () => {
     prismaMock.organization.upsert.mockResolvedValue({ id: 1 });
     prismaMock.reimbursement.upsert.mockResolvedValue({ id: 1 });
 
-    // Generate a valid dummy excel buffer
     const mockData = [{ 
       code: '123', 
       name: 'Med', 
@@ -42,14 +45,22 @@ describe('Import API', () => {
 
     const res = await request(app)
       .post('/api/v1/import/excel')
+      .set('Authorization', `Bearer ${adminToken}`)
       .attach('file', buffer, 'test.xlsx');
       
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('success');
   });
 
-  it('should return 400 if no file is provided', async () => {
+  it('should return 401 if no auth token is provided', async () => {
     const res = await request(app).post('/api/v1/import/excel');
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('should return 400 if no file is provided', async () => {
+    const res = await request(app)
+      .post('/api/v1/import/excel')
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(res.statusCode).toBe(400);
     expect(res.body.message).toBe('Please upload an Excel file');
   });
@@ -73,6 +84,7 @@ describe('Import API', () => {
 
     const res = await request(app)
       .post('/api/v1/import/excel')
+      .set('Authorization', `Bearer ${adminToken}`)
       .attach('file', buffer, 'test_partial.xlsx');
       
     expect(res.statusCode).toBe(200);
@@ -84,7 +96,6 @@ describe('Import API', () => {
     prismaMock.importHistory.create.mockResolvedValue({ id: 3 });
     prismaMock.importHistory.update.mockResolvedValue({ id: 3, status: 'FAILED' });
     
-    // Simulate an uncaught error in parsing
     jest.spyOn(xlsx, 'read').mockImplementationOnce(() => {
       throw new Error('Fatal read error');
     });
@@ -92,6 +103,7 @@ describe('Import API', () => {
     const buffer = Buffer.from('fake data');
     const res = await request(app)
       .post('/api/v1/import/excel')
+      .set('Authorization', `Bearer ${adminToken}`)
       .attach('file', buffer, 'test_fatal.xlsx');
       
     expect(res.statusCode).toBe(500);

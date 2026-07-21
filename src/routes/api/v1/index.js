@@ -9,10 +9,12 @@ const medicationIngredientRoutes = require('./medicationIngredient.routes');
 const reimbursementRoutes = require('./reimbursement.routes');
 const importHistoryRoutes = require('./importHistory.routes');
 const importRoutes = require('./import.routes');
+const authRoutes = require('./auth.routes');
 
 const router = express.Router();
 
 const defaultRoutes = [
+  { path: '/auth', route: authRoutes },
   { path: '/organizations', route: organizationRoutes },
   { path: '/manufacturers', route: manufacturerRoutes },
   { path: '/categories', route: categoryRoutes },

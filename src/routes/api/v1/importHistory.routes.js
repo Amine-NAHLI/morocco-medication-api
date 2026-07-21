@@ -2,23 +2,31 @@ const express = require('express');
 const { body } = require('express-validator');
 const validate = require('../../../middlewares/validate.middleware');
 const importHistoryController = require('../../../controllers/importHistory.controller');
+const { authenticate, authorize } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 router.route('/')
+  .get(importHistoryController.findAll)
   .post(
-    // Placeholder for express-validator
+    authenticate,
+    authorize('ADMIN'),
     validate,
     importHistoryController.create
-  )
-  .get(importHistoryController.findAll);
+  );
 
 router.route('/:id')
   .get(importHistoryController.findById)
   .put(
+    authenticate,
+    authorize('ADMIN'),
     validate,
     importHistoryController.update
   )
-  .delete(importHistoryController.delete);
+  .delete(
+    authenticate,
+    authorize('ADMIN'),
+    importHistoryController.delete
+  );
 
 module.exports = router;

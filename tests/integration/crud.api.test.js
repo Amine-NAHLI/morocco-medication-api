@@ -2,6 +2,14 @@ const request = require('supertest');
 const app = require('../../src/app');
 jest.mock('../../src/config/prisma');
 const prismaMock = require('../../src/config/prisma');
+const jwt = require('jsonwebtoken');
+
+// Generate a valid admin token for protected route tests
+const adminToken = jwt.sign(
+  { id: 1, email: 'admin@test.com', role: 'ADMIN' },
+  process.env.JWT_SECRET || 'dev-secret-key',
+  { expiresIn: '1h' }
+);
 
 const entities = [
   { name: 'Organization', path: '/api/v1/organizations', model: 'organization' },
@@ -48,22 +56,45 @@ describe('Generic CRUD API Tests', () => {
         expect(res.statusCode).toBe(404);
       });
 
-      it(`should POST (create) a new ${entity.name}`, async () => {
+      it(`should POST (create) a new ${entity.name} with auth`, async () => {
         prismaMock[entity.model].create.mockResolvedValue({ id: 1 });
-        const res = await request(app).post(entity.path).send({});
+        const res = await request(app)
+          .post(entity.path)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({});
         expect(res.statusCode).toBe(201);
       });
 
-      it(`should PUT (update) an existing ${entity.name}`, async () => {
+      it(`should reject POST without auth for ${entity.name}`, async () => {
+        const res = await request(app).post(entity.path).send({});
+        expect(res.statusCode).toBe(401);
+      });
+
+      it(`should PUT (update) an existing ${entity.name} with auth`, async () => {
         prismaMock[entity.model].update.mockResolvedValue({ id: 1 });
-        const res = await request(app).put(`${entity.path}/1`).send({});
+        const res = await request(app)
+          .put(`${entity.path}/1`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({});
         expect(res.statusCode).toBe(200);
       });
 
-      it(`should DELETE an existing ${entity.name}`, async () => {
+      it(`should reject PUT without auth for ${entity.name}`, async () => {
+        const res = await request(app).put(`${entity.path}/1`).send({});
+        expect(res.statusCode).toBe(401);
+      });
+
+      it(`should DELETE an existing ${entity.name} with auth`, async () => {
         prismaMock[entity.model].delete.mockResolvedValue({ id: 1 });
-        const res = await request(app).delete(`${entity.path}/1`);
+        const res = await request(app)
+          .delete(`${entity.path}/1`)
+          .set('Authorization', `Bearer ${adminToken}`);
         expect(res.statusCode).toBe(204);
+      });
+
+      it(`should reject DELETE without auth for ${entity.name}`, async () => {
+        const res = await request(app).delete(`${entity.path}/1`);
+        expect(res.statusCode).toBe(401);
       });
 
     });

@@ -2,23 +2,31 @@ const express = require('express');
 const { body } = require('express-validator');
 const validate = require('../../../middlewares/validate.middleware');
 const categoryController = require('../../../controllers/category.controller');
+const { authenticate, authorize } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 router.route('/')
+  .get(categoryController.findAll)
   .post(
-    // Placeholder for express-validator
+    authenticate,
+    authorize('ADMIN'),
     validate,
     categoryController.create
-  )
-  .get(categoryController.findAll);
+  );
 
 router.route('/:id')
   .get(categoryController.findById)
   .put(
+    authenticate,
+    authorize('ADMIN'),
     validate,
     categoryController.update
   )
-  .delete(categoryController.delete);
+  .delete(
+    authenticate,
+    authorize('ADMIN'),
+    categoryController.delete
+  );
 
 module.exports = router;
