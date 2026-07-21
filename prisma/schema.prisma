@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id      Int     @id @default(autoincrement())
+  code    String  @unique
+  name    String
+  website String?
+  phone   String?
+
+  reimbursements Reimbursement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([name])
+}
+
+model Manufacturer {
+  id      Int     @id @default(autoincrement())
+  name    String  @unique
+  country String?
+
+  medications Medication[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+}
+
+model Category {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+
+  medications Medication[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+}
+
+model ActiveIngredient {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  medications MedicationIngredient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+}
+
+model Medication {
+  id            Int     @id @default(autoincrement())
+  code          String? @unique // Code d'enregistrement / AMM
+  name          String
+  form          String? // Ex: Comprimé, Sirop
+  presentation  String? // Ex: Boîte de 30
+  publicPrice   Float? // PPV (Prix Public de Vente)
+  hospitalPrice Float? // PHG (Prix Hôpital)
+
+  manufacturerId Int?
+  manufacturer   Manufacturer? @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  reimbursements Reimbursement[]
+  ingredients    MedicationIngredient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([name])
+  @@index([manufacturerId])
+  @@index([categoryId])
+}
+
+model MedicationIngredient {
+  id     Int     @id @default(autoincrement())
+  dosage String? // Ex: 500mg, 1g
+
+  medicationId Int
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  activeIngredientId Int
+  activeIngredient   ActiveIngredient @relation(fields: [activeIngredientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([medicationId, activeIngredientId])
+  @@index([medicationId])
+  @@index([activeIngredientId])
+}
+
+model Reimbursement {
+  id                Int     @id @default(autoincrement())
+  reimbursementBase Float?
+  reimbursementRate Float?
+  referencePrice    Float?
+  conditions        String?
+
+  medicationId   Int
+  medication     Medication   @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([medicationId, organizationId])
+  @@index([medicationId])
+  @@index([organizationId])
+}
+
+model ImportHistory {
+  id               Int     @id @default(autoincrement())
+  filename         String
+  status           String // Ex: PENDING, SUCCESS, FAILED
+  recordsProcessed Int     @default(0)
+  errorsCount      Int     @default(0)
+  errorDetails     String? // JSON ou détails textuels
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([startedAt])
+}
