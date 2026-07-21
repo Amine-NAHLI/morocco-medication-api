@@ -8,6 +8,49 @@ const dns = require('dns');
 const { URL } = require('url');
 const ipaddr = require('ipaddr.js');
 
+const normalizeColumnName = (value) => String(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-zA-Z0-9]/g, '')
+  .toUpperCase();
+
+const getColumnValue = (row, aliases) => {
+  const normalizedAliases = new Set(aliases.map(normalizeColumnName));
+  const entry = Object.entries(row).find(([key]) => normalizedAliases.has(normalizeColumnName(key)));
+  return entry ? entry[1] : null;
+};
+
+const parseCnopsPrice = (value) => {
+  if (value === null || value === undefined) return null;
+
+  let normalized = String(value).trim().replace(/\s+/g, '');
+  if (!normalized || normalized === '-') return null;
+  normalized = normalized.replace(/[^0-9,.-]/g, '');
+
+  const lastComma = normalized.lastIndexOf(',');
+  const lastDot = normalized.lastIndexOf('.');
+  if (lastComma !== -1 && lastDot !== -1) {
+    normalized = lastDot > lastComma
+      ? normalized.replace(/,/g, '')
+      : normalized.replace(/\./g, '').replace(',', '.');
+  } else if (lastComma !== -1) {
+    normalized = normalized.replace(',', '.');
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const isGenericMedication = (value) => {
+  if (value === null || value === undefined) return false;
+  const normalized = String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+  return normalized === 'G' || normalized.includes('GENERIQUE') || normalized.includes('GENERIC');
+};
+
 class CnopsOpenDataConnector extends BaseConnector {
   constructor() {
     super('CNOPS', 'Caisse Nationale des Organismes de Prévoyance Sociale');
@@ -194,35 +237,22 @@ class CnopsOpenDataConnector extends BaseConnector {
       const buffer = await this.downloadResourceBuffer(resMeta.url);
       const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-      // Check if unchanged
-      const lastResource = await prisma.sourceResource.findFirst({
-        where: { sourceId: source.id },
+      // Only a fully successful import may suppress a later retry of the same file.
+      const lastSuccessfulResource = await prisma.sourceResource.findFirst({
+        where: {
+          sourceId: source.id,
+          syncJobs: { some: { status: 'SYNC_SUCCESS' } }
+        },
         orderBy: { createdAt: 'desc' }
       });
 
-      if (lastResource && lastResource.fileHash === fileHash) {
+      if (lastSuccessfulResource && lastSuccessfulResource.fileHash === fileHash) {
         await prisma.syncJob.update({
           where: { id: syncJob.id },
           data: { status: 'SOURCE_CHANGED_NO_UPDATE', completedAt: new Date() }
         });
         return { success: true, message: 'Source has not changed. Skipping sync.' };
       }
-
-      // Record new resource
-      const resourceRecord = await prisma.sourceResource.create({
-        data: {
-          name: resMeta.name,
-          url: resMeta.url,
-          fileHash,
-          publishedAt: resMeta.lastModified ? new Date(resMeta.lastModified) : null,
-          sourceId: source.id
-        }
-      });
-
-      await prisma.syncJob.update({
-        where: { id: syncJob.id },
-        data: { resourceId: resourceRecord.id }
-      });
 
       const rawRows = await this.parseResource(buffer);
       
@@ -231,10 +261,11 @@ class CnopsOpenDataConnector extends BaseConnector {
       for (let i = 0; i < rawRows.length; i++) {
         const row = rawRows[i];
         
-        // Normalize CNOPS format
-        const code = row['Code'] || row['Code Medicament'] || row['code'] || null;
-        const name = row['Nom'] || row['Nom Commercial'] || row['Nom_Commercial'] || row['name'] || 'Inconnu';
-        const isGeneric = row['Type']?.toString().toLowerCase().includes('générique') || false;
+        // Current official columns are CODE, NOM, PH and PRINCEPS_GENERIQUE.
+        // Keep aliases used by older CNOPS exports for backward compatibility.
+        const code = getColumnValue(row, ['CODE', 'Code', 'Code Medicament', 'code']);
+        const name = getColumnValue(row, ['NOM', 'Nom', 'Nom Commercial', 'Nom_Commercial', 'name']) || 'Inconnu';
+        const isGeneric = isGenericMedication(getColumnValue(row, ['PRINCEPS_GENERIQUE', 'Type']));
         
         if (!code) {
           errorsCount++;
@@ -263,8 +294,8 @@ class CnopsOpenDataConnector extends BaseConnector {
             if (existingMed) updated++;
             else created++;
 
-            const ppv = parseFloat(row['PPV'] || row['Prix Public'] || 0);
-            const phg = parseFloat(row['PHG'] || row['Prix Hôpital'] || 0);
+            const ppv = parseCnopsPrice(getColumnValue(row, ['PPV', 'Prix Public']));
+            const phg = parseCnopsPrice(getColumnValue(row, ['PH', 'PHG', 'Prix Hôpital']));
 
             // Fetch the last price
             const lastPrice = await tx.medicationPrice.findFirst({
@@ -272,16 +303,16 @@ class CnopsOpenDataConnector extends BaseConnector {
               orderBy: { effectiveDate: 'desc' }
             });
 
-            const hasChanged = !lastPrice || 
-                               (ppv > 0 && lastPrice.publicPrice !== ppv) || 
-                               (phg > 0 && lastPrice.hospitalPrice !== phg);
+            const hasChanged = !lastPrice ||
+                               (ppv !== null && lastPrice.publicPrice !== ppv) ||
+                               (phg !== null && lastPrice.hospitalPrice !== phg);
 
-            if (hasChanged && (ppv > 0 || phg > 0)) {
+            if (hasChanged && (ppv !== null || phg !== null)) {
               await tx.medicationPrice.create({
                 data: {
                   medicationId: med.id,
-                  publicPrice: ppv > 0 ? ppv : null,
-                  hospitalPrice: phg > 0 ? phg : null,
+                  publicPrice: ppv,
+                  hospitalPrice: phg,
                   effectiveDate: new Date()
                 }
               });
@@ -295,6 +326,20 @@ class CnopsOpenDataConnector extends BaseConnector {
 
       const finalStatus = errorsCount === 0 ? 'SYNC_SUCCESS' : (created + updated > 0 ? 'SYNC_PARTIAL' : 'SYNC_FAILED');
 
+      let resourceId = null;
+      if (finalStatus === 'SYNC_SUCCESS') {
+        const resourceRecord = await prisma.sourceResource.create({
+          data: {
+            name: resMeta.name,
+            url: resMeta.url,
+            fileHash,
+            publishedAt: resMeta.lastModified ? new Date(resMeta.lastModified) : null,
+            sourceId: source.id
+          }
+        });
+        resourceId = resourceRecord.id;
+      }
+
       await prisma.syncJob.update({
         where: { id: syncJob.id },
         data: {
@@ -303,6 +348,7 @@ class CnopsOpenDataConnector extends BaseConnector {
           recordsCreated: created,
           recordsUpdated: updated,
           errorsCount,
+          ...(resourceId ? { resourceId } : {}),
           completedAt: new Date()
         }
       });

@@ -7,6 +7,7 @@ const app = require('../../src/app');
 const authService = require('../../src/services/auth.service');
 const medicationService = require('../../src/services/medication.service');
 const importService = require('../../src/services/import.service');
+const cnopsConnector = require('../../src/services/connectors/cnops.connector');
 const { generateAccessToken } = require('../../src/utils/jwt');
 
 const cleanDatabase = async () => {
@@ -34,6 +35,43 @@ const createWorkbook = () => {
   }]);
   const workbook = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(workbook, sheet, 'Medications');
+  return xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+};
+
+// Extracted from the official CNOPS XLSX downloaded from data.gov.ma on 2026-07-21.
+const createOfficialCnopsExtract = () => {
+  const sheet = xlsx.utils.json_to_sheet([
+    {
+      CODE: '6118001230068',
+      NOM: 'URO / EAU POUR IRRIGATION',
+      DCI1: 'EAU POUR PREPARATION INJECTABLE',
+      DOSAGE1: '3000',
+      UNITE_DOSAGE1: 'ML',
+      FORME: 'SOLUTION POUR IRRIGATION',
+      PRESENTATION: '1 POCHE 3 L',
+      PPV: ' 95.00   ',
+      PH: ' -     ',
+      PRIX_BR: ' 95.00   ',
+      PRINCEPS_GENERIQUE: 'P',
+      TAUX_REMBOURSEMENT: '0%',
+    },
+    {
+      CODE: '6118010116230',
+      NOM: 'ELOXATINE 5 MG/ML',
+      DCI1: 'OXALIPLATINE',
+      DOSAGE1: '200',
+      UNITE_DOSAGE1: 'MG',
+      FORME: 'SOLUTION A DILUER POUR PERFUSION',
+      PRESENTATION: '1 BOITE 1 FLACON 40 ML',
+      PPV: ' 2,882.00   ',
+      PH: ' 2,555.00   ',
+      PRIX_BR: ' 2,882.00   ',
+      PRINCEPS_GENERIQUE: 'P',
+      TAUX_REMBOURSEMENT: '70%',
+    },
+  ]);
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, sheet, 'CNOPS');
   return xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 };
 
@@ -126,6 +164,43 @@ describe('isolated PostgreSQL integration', () => {
     expect(medication.prices[0].publicPrice).toBe(34.5);
     expect(medication.reimbursements[0]).toMatchObject({ reimbursementRate: 70, organization: { code: 'CNOPS-TEST' } });
     expect(medication.ingredients).toHaveLength(1);
+  });
+
+  test('imports an official CNOPS extract using the current production column names', async () => {
+    const buffer = createOfficialCnopsExtract();
+    jest.spyOn(cnopsConnector, 'discoverResources').mockResolvedValue({
+      url: 'https://data.gov.ma/dataset/referentiel-des-medicaments.xlsx',
+      lastModified: '2026-07-21T00:00:00.000Z',
+      name: 'Réf des médicaments',
+    });
+    jest.spyOn(cnopsConnector, 'downloadResourceBuffer').mockResolvedValue(buffer);
+
+    const result = await cnopsConnector.syncDatabase();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'SYNC_SUCCESS',
+      summary: { read: 2, created: 2, updated: 0, errors: 0 },
+    });
+    const medications = await prisma.medication.findMany({
+      where: { code: { in: ['6118001230068', '6118010116230'] } },
+      include: { prices: true, source: true },
+      orderBy: { code: 'asc' },
+    });
+    expect(medications).toHaveLength(2);
+    expect(medications[0]).toMatchObject({
+      code: '6118001230068',
+      name: 'URO / EAU POUR IRRIGATION',
+      isGeneric: false,
+      source: { code: 'CNOPS' },
+    });
+    expect(medications[0].prices[0]).toMatchObject({ publicPrice: 95, hospitalPrice: null });
+    expect(medications[1].prices[0]).toMatchObject({ publicPrice: 2882, hospitalPrice: 2555 });
+    expect(await prisma.sourceResource.count()).toBe(1);
+
+    const retry = await cnopsConnector.syncDatabase();
+    expect(retry.message).toContain('Skipping sync');
+    expect(await prisma.medication.count({ where: { source: { is: { code: 'CNOPS' } } } })).toBe(2);
   });
 
   test('rolls back failed transactions and retains database uniqueness and foreign-key constraints', async () => {
