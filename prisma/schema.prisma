@@ -12,11 +12,11 @@ enum Role {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
+  id           Int     @id @default(autoincrement())
+  email        String  @unique
   password     String
   name         String?
-  role         Role     @default(USER)
+  role         Role    @default(USER)
   refreshToken String?
 
   createdAt DateTime @default(now())
@@ -25,7 +25,72 @@ model User {
   @@index([email])
 }
 
-model Organization {
+enum DataStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Source {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  code        String  @unique
+  description String?
+  website     String?
+
+  resources   SourceResource[]
+  medications Medication[]
+  syncJobs    SyncJob[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+}
+
+model SourceResource {
+  id          Int       @id @default(autoincrement())
+  name        String
+  url         String?
+  fileHash    String?
+  publishedAt DateTime?
+
+  sourceId Int
+  source   Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  syncJobs SyncJob[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sourceId])
+}
+
+model OfficialDocument {
+  id          Int       @id @default(autoincrement())
+  title       String
+  reference   String?   @unique
+  url         String?
+  publishedAt DateTime?
+
+  reimbursements Reimbursement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Regime {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  code        String  @unique
+  description String?
+
+  reimbursements Reimbursement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ManagingOrganization {
   id      Int     @id @default(autoincrement())
   code    String  @unique
   name    String
@@ -80,13 +145,14 @@ model ActiveIngredient {
 }
 
 model Medication {
-  id            Int     @id @default(autoincrement())
-  code          String? @unique // Code d'enregistrement / AMM
-  name          String
-  form          String? // Ex: Comprimé, Sirop
-  presentation  String? // Ex: Boîte de 30
-  publicPrice   Float? // PPV (Prix Public de Vente)
-  hospitalPrice Float? // PHG (Prix Hôpital)
+  id           Int        @id @default(autoincrement())
+  code         String?    @unique // Code d'enregistrement / AMM
+  name         String
+  form         String? // Ex: Comprimé, Sirop
+  presentation String? // Ex: Boîte de 30
+  dosageUnit   String?
+  isGeneric    Boolean    @default(false)
+  status       DataStatus @default(ACTIVE)
 
   manufacturerId Int?
   manufacturer   Manufacturer? @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
@@ -94,6 +160,10 @@ model Medication {
   categoryId Int?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  sourceId Int?
+  source   Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  prices         MedicationPrice[]
   reimbursements Reimbursement[]
   ingredients    MedicationIngredient[]
 
@@ -104,6 +174,22 @@ model Medication {
   @@index([name])
   @@index([manufacturerId])
   @@index([categoryId])
+  @@index([sourceId])
+}
+
+model MedicationPrice {
+  id            Int       @id @default(autoincrement())
+  publicPrice   Float? // PPV (Prix Public de Vente)
+  hospitalPrice Float? // PHG (Prix Hôpital)
+  effectiveDate DateTime?
+
+  medicationId Int
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([medicationId])
 }
 
 model MedicationIngredient {
@@ -125,17 +211,24 @@ model MedicationIngredient {
 }
 
 model Reimbursement {
-  id                Int     @id @default(autoincrement())
+  id                Int        @id @default(autoincrement())
   reimbursementBase Float?
   reimbursementRate Float?
   referencePrice    Float?
   conditions        String?
+  status            DataStatus @default(ACTIVE)
 
-  medicationId   Int
-  medication     Medication   @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  medicationId Int
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
 
   organizationId Int
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   ManagingOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  regimeId Int?
+  regime   Regime? @relation(fields: [regimeId], references: [id], onDelete: SetNull)
+
+  documentId Int?
+  document   OfficialDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -143,15 +236,26 @@ model Reimbursement {
   @@unique([medicationId, organizationId])
   @@index([medicationId])
   @@index([organizationId])
+  @@index([regimeId])
 }
 
-model ImportHistory {
-  id               Int     @id @default(autoincrement())
-  filename         String
-  status           String // Ex: PENDING, SUCCESS, FAILED
-  recordsProcessed Int     @default(0)
-  errorsCount      Int     @default(0)
-  errorDetails     String? // JSON ou détails textuels
+model SyncJob {
+  id                Int     @id @default(autoincrement())
+  status            String // AVAILABLE, UNAVAILABLE, OUTDATED, INVALID_FORMAT, SOURCE_CHANGED, SOURCE_NOT_AUTOMATABLE, SYNC_SUCCESS, SYNC_PARTIAL, SYNC_FAILED
+  recordsRead       Int     @default(0)
+  recordsValid      Int     @default(0)
+  recordsRejected   Int     @default(0)
+  recordsCreated    Int     @default(0)
+  recordsUpdated    Int     @default(0)
+  recordsDuplicates Int     @default(0)
+  errorsCount       Int     @default(0)
+  errorDetails      String? // JSON ou détails textuels
+
+  sourceId Int
+  source   Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  resourceId Int?
+  resource   SourceResource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 
   startedAt   DateTime  @default(now())
   completedAt DateTime?
@@ -160,5 +264,6 @@ model ImportHistory {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([sourceId])
   @@index([startedAt])
 }

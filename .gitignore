@@ -52,3 +52,4 @@ coverage/
 # If you ever use a local SQLite DB for testing, ignore it:
 *.db
 *.db-journal
+test-results.txt
