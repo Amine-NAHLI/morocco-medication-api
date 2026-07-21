@@ -10,6 +10,7 @@ const reimbursementRoutes = require('./reimbursement.routes');
 const importHistoryRoutes = require('./importHistory.routes');
 const importRoutes = require('./import.routes');
 const authRoutes = require('./auth.routes');
+const syncRoutes = require('./sync.routes');
 
 const router = express.Router();
 
@@ -24,6 +25,7 @@ const defaultRoutes = [
   { path: '/reimbursements', route: reimbursementRoutes },
   { path: '/import-histories', route: importHistoryRoutes },
   { path: '/import', route: importRoutes },
+  { path: '/sync', route: syncRoutes },
 ];
 
 defaultRoutes.forEach((route) => {

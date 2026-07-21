@@ -129,6 +129,11 @@ components:
       description: Sort order (asc or desc)
       schema: { type: string, enum: [asc, desc], default: desc }
 
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
 paths:
   /import/excel:
     post:
@@ -266,3 +271,63 @@ paths:
       responses:
         '200':
           description: OK
+
+  /sync/cnops:
+    post:
+      summary: Trigger CNOPS Sync
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync completed
+
+  /sync/cnss:
+    post:
+      summary: Trigger CNSS Sync
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync completed
+
+  /sync/anam:
+    post:
+      summary: Trigger ANAM Sync
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync completed
+
+  /sync/all:
+    post:
+      summary: Trigger All Syncs
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync completed
+
+  /sync/status:
+    get:
+      summary: Get Sync Status
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Status retrieved
+
+  /sync/history:
+    get:
+      summary: Get Sync History
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: History retrieved
