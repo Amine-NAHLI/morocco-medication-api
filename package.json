@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest"
   },
   "repository": {
     "type": "git",
@@ -19,6 +21,7 @@
   },
   "homepage": "https://github.com/Amine-NAHLI/morocco-medication-api#readme",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.0",
     "@prisma/client": "^7.9.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -31,6 +34,7 @@
     "helmet": "^8.3.0",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
+    "pg": "^8.22.0",
     "prisma": "^7.9.0",
     "swagger-ui-express": "^5.0.1",
     "xlsx": "^0.18.5",
