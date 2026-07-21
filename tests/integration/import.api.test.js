@@ -13,8 +13,9 @@ const adminToken = jwt.sign(
 
 describe('Import API', () => {
   it('should successfully upload and process an Excel file', async () => {
-    prismaMock.importHistory.create.mockResolvedValue({ id: 1 });
-    prismaMock.importHistory.update.mockResolvedValue({ id: 1, status: 'SUCCESS' });
+    prismaMock.source.upsert.mockResolvedValue({ id: 1, code: 'MANUAL_IMPORT' });
+    prismaMock.syncJob.create.mockResolvedValue({ id: 1 });
+    prismaMock.syncJob.update.mockResolvedValue({ id: 1, status: 'SUCCESS' });
     
     prismaMock.$transaction.mockImplementation(async (callback) => {
        return callback(prismaMock);
@@ -66,8 +67,9 @@ describe('Import API', () => {
   });
 
   it('should handle invalid rows and mark import as PARTIAL', async () => {
-    prismaMock.importHistory.create.mockResolvedValue({ id: 2 });
-    prismaMock.importHistory.update.mockResolvedValue({ id: 2, status: 'PARTIAL' });
+    prismaMock.source.upsert.mockResolvedValue({ id: 1, code: 'MANUAL_IMPORT' });
+    prismaMock.syncJob.create.mockResolvedValue({ id: 2 });
+    prismaMock.syncJob.update.mockResolvedValue({ id: 2, status: 'PARTIAL' });
     
     prismaMock.$transaction.mockImplementation(async (callback) => {
        return callback(prismaMock);
@@ -93,8 +95,9 @@ describe('Import API', () => {
   });
 
   it('should handle complete failure and mark as FAILED', async () => {
-    prismaMock.importHistory.create.mockResolvedValue({ id: 3 });
-    prismaMock.importHistory.update.mockResolvedValue({ id: 3, status: 'FAILED' });
+    prismaMock.source.upsert.mockResolvedValue({ id: 1, code: 'MANUAL_IMPORT' });
+    prismaMock.syncJob.create.mockResolvedValue({ id: 3 });
+    prismaMock.syncJob.update.mockResolvedValue({ id: 3, status: 'FAILED' });
     
     jest.spyOn(xlsx, 'read').mockImplementationOnce(() => {
       throw new Error('Fatal read error');

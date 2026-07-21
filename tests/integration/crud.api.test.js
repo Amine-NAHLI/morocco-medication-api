@@ -12,14 +12,14 @@ const adminToken = jwt.sign(
 );
 
 const entities = [
-  { name: 'Organization', path: '/api/v1/organizations', model: 'organization' },
+  { name: 'Organization', path: '/api/v1/organizations', model: 'managingOrganization' },
   { name: 'Manufacturer', path: '/api/v1/manufacturers', model: 'manufacturer' },
   { name: 'Category', path: '/api/v1/categories', model: 'category' },
   { name: 'ActiveIngredient', path: '/api/v1/active-ingredients', model: 'activeIngredient' },
   { name: 'Medication', path: '/api/v1/medications', model: 'medication' },
   { name: 'MedicationIngredient', path: '/api/v1/medication-ingredients', model: 'medicationIngredient' },
   { name: 'Reimbursement', path: '/api/v1/reimbursements', model: 'reimbursement' },
-  { name: 'ImportHistory', path: '/api/v1/import-histories', model: 'importHistory' },
+  { name: 'ImportHistory', path: '/api/v1/import-histories', model: 'syncJob' },
 ];
 
 describe('Generic CRUD API Tests', () => {
