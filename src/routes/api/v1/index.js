@@ -8,6 +8,7 @@ const medicationRoutes = require('./medication.routes');
 const medicationIngredientRoutes = require('./medicationIngredient.routes');
 const reimbursementRoutes = require('./reimbursement.routes');
 const importHistoryRoutes = require('./importHistory.routes');
+const importRoutes = require('./import.routes');
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ const defaultRoutes = [
   { path: '/medication-ingredients', route: medicationIngredientRoutes },
   { path: '/reimbursements', route: reimbursementRoutes },
   { path: '/import-histories', route: importHistoryRoutes },
+  { path: '/import', route: importRoutes },
 ];
 
 defaultRoutes.forEach((route) => {
