@@ -5,16 +5,28 @@ const logger = require('../utils/logger');
 
 class ImportService {
   async processExcelImport(filename, buffer) {
-    // 1. Create history record
-    let history = await prisma.importHistory.create({
+    // 1. Ensure MANUAL source exists for backwards compatibility
+    const manualSource = await prisma.source.upsert({
+      where: { code: 'MANUAL_IMPORT' },
+      update: {},
+      create: {
+        code: 'MANUAL_IMPORT',
+        name: 'Manual Excel Import',
+        description: 'Legacy manual Excel upload'
+      }
+    });
+
+    // 2. Create history record (SyncJob)
+    let syncJob = await prisma.syncJob.create({
       data: {
-        filename,
-        status: 'PENDING'
+        sourceId: manualSource.id,
+        status: 'PENDING',
+        errorDetails: `Filename: ${filename}`
       }
     });
 
     try {
-      // 2. Parse Excel
+      // 3. Parse Excel
       const rawRows = ExcelParserService.parseBuffer(buffer);
       
       let created = 0;
@@ -23,7 +35,7 @@ class ImportService {
       let errorsCount = 0;
       const errorLog = [];
 
-      // 3. Process Rows Sequentially to avoid race conditions with upsert uniqueness
+      // 4. Process Rows Sequentially
       for (let i = 0; i < rawRows.length; i++) {
         const rawRow = rawRows[i];
         const validation = ValidationService.validateMedicationRow(rawRow);
@@ -69,25 +81,35 @@ class ImportService {
                 name: data.name,
                 form: data.form,
                 presentation: data.presentation,
-                publicPrice: data.publicPrice,
-                hospitalPrice: data.hospitalPrice,
                 manufacturerId: manufacturer.id,
-                categoryId: categoryId
+                categoryId: categoryId,
+                sourceId: manualSource.id
               },
               create: {
                 code: data.code,
                 name: data.name,
                 form: data.form,
                 presentation: data.presentation,
-                publicPrice: data.publicPrice,
-                hospitalPrice: data.hospitalPrice,
                 manufacturerId: manufacturer.id,
-                categoryId: categoryId
+                categoryId: categoryId,
+                sourceId: manualSource.id
               }
             });
 
             if (existingMed) updated++;
             else created++;
+
+            // Handle Prices
+            if (data.publicPrice || data.hospitalPrice) {
+              await tx.medicationPrice.create({
+                data: {
+                  medicationId: medication.id,
+                  publicPrice: data.publicPrice,
+                  hospitalPrice: data.hospitalPrice,
+                  effectiveDate: new Date()
+                }
+              });
+            }
 
             // Handle Active Ingredients
             if (data.activeIngredients.length > 0) {
@@ -118,7 +140,7 @@ class ImportService {
             // Handle Reimbursement
             if (data.reimbursement) {
               const r = data.reimbursement;
-              const org = await tx.organization.upsert({
+              const org = await tx.managingOrganization.upsert({
                 where: { code: r.organization },
                 update: { name: r.organization },
                 create: { code: r.organization, name: r.organization }
@@ -155,15 +177,17 @@ class ImportService {
         }
       }
 
-      const finalStatus = errorsCount === 0 ? 'SUCCESS' : (created + updated > 0 ? 'PARTIAL' : 'FAILED');
+      const finalStatus = errorsCount === 0 ? 'SYNC_SUCCESS' : (created + updated > 0 ? 'SYNC_PARTIAL' : 'SYNC_FAILED');
 
-      history = await prisma.importHistory.update({
-        where: { id: history.id },
+      syncJob = await prisma.syncJob.update({
+        where: { id: syncJob.id },
         data: {
           status: finalStatus,
-          recordsProcessed: rawRows.length,
+          recordsRead: rawRows.length,
+          recordsCreated: created,
+          recordsUpdated: updated,
           errorsCount,
-          errorDetails: JSON.stringify(errorLog),
+          errorDetails: JSON.stringify({ filename, errors: errorLog }),
           completedAt: new Date()
         }
       });
@@ -177,15 +201,15 @@ class ImportService {
           ignored,
           errors: errorsCount
         },
-        historyId: history.id
+        historyId: syncJob.id
       };
 
     } catch (error) {
       // Complete failure
-      await prisma.importHistory.update({
-        where: { id: history.id },
+      await prisma.syncJob.update({
+        where: { id: syncJob.id },
         data: {
-          status: 'FAILED',
+          status: 'SYNC_FAILED',
           errorDetails: error.message,
           completedAt: new Date()
         }

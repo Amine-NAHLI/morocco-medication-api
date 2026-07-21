@@ -3,7 +3,7 @@ const prisma = require('../config/prisma');
 
 class ImportHistoryRepository extends BaseRepository {
   constructor() {
-    super(prisma.importHistory);
+    super(prisma.syncJob, ['status']);
   }
 }
 module.exports = new ImportHistoryRepository();
