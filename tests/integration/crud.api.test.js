@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../../src/app');
+jest.mock('../../src/config/prisma');
 const prismaMock = require('../../src/config/prisma');
 
 const entities = [
@@ -25,6 +26,14 @@ describe('Generic CRUD API Tests', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.status).toBe('success');
         expect(res.body.data).toHaveLength(1);
+      });
+
+      it(`should GET all ${entity.name} with pagination and sorting`, async () => {
+        prismaMock[entity.model].findMany.mockResolvedValue([{ id: 1 }]);
+        prismaMock[entity.model].count.mockResolvedValue(1);
+
+        const res = await request(app).get(`${entity.path}?page=2&limit=5&sortBy=name&order=asc&search=test`);
+        expect(res.statusCode).toBe(200);
       });
 
       it(`should GET a specific ${entity.name} by ID`, async () => {

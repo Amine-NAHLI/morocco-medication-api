@@ -15,7 +15,7 @@ describe('QueryBuilder', () => {
 
   it('should build sorting parameters with defaults', () => {
     const result = buildSorting({});
-    expect(result).toEqual({ id: 'desc' }); // wait, I set default sortBy to 'createdAt', but in standard it might be 'id'. Let's check queryBuilder.
+    expect(result).toEqual({ createdAt: 'desc' });
   });
 
   it('should build sorting parameters from query', () => {
