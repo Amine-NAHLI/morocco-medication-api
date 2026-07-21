@@ -49,6 +49,27 @@ Le scheduler est local, désactivé par défaut, non actif dans les tests et év
 
 ## Tests et qualité
 
+`npm test` exécute uniquement les tests unitaires et HTTP : il ne démarre jamais PostgreSQL. `npm run test:coverage` produit `coverage/coverage-summary.json`.
+
+Les tests PostgreSQL réels sont isolés dans `tests/db` et n'utilisent jamais `DATABASE_URL`. `npm run test:db` exige explicitement `TEST_DATABASE_URL` et échoue volontairement si elle est absente, distante, Neon, Supabase ou non locale. Cette protection interdit toute exécution accidentelle contre une base de développement ou de production.
+
+Commande locale recommandée :
+
+```bash
+npm run test:all:local
+```
+
+`npm run test:db:local` démarre `docker-compose.test.yml`, attend le healthcheck PostgreSQL 16, injecte uniquement `TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/morocco_medication_test`, applique les migrations, exécute les tests DB, puis arrête et supprime toujours le conteneur. Les données sont stockées en `tmpfs`, sans volume persistant. Copiez `.env.test.example` vers `.env.test` seulement pour une exécution manuelle ; `.env.test` est ignoré par Git.
+
+- `npm run test:db:up` : démarre PostgreSQL local et attend son healthcheck.
+- `npm run test:db` : exécute les tests DB contre une `TEST_DATABASE_URL` fournie explicitement.
+- `npm run test:db:down` : arrête et supprime la base de test locale.
+- `npm run test:db:local` : orchestre la base locale temporaire et les tests DB.
+- `npm run test:all` : exécute les tests standards puis des tests DB configurés manuellement.
+- `npm run test:all:local` : exécute les tests standards puis la base PostgreSQL locale temporaire.
+
+Aucune de ces commandes n'utilise l'URL Neon de `.env`. Le lanceur local ne transmet que son URL PostgreSQL locale de test. Ne lancez jamais `prisma migrate reset` sur une base partagée ou distante.
+
 `npm test -- --runInBand` exécute les tests unitaires et HTTP. `npm run test:coverage` produit `coverage/coverage-summary.json`. Les tests PostgreSQL réels sont isolés dans `tests/db` : définissez `TEST_DATABASE_URL` vers une base **locale** nommée `morocco_medication_test` (ou suffixée), puis lancez `npm run test:db`. Ce script refuse Neon, Supabase et toute hôte distante, remplace `DATABASE_URL` seulement dans son propre processus et applique `prisma migrate deploy` sur cette base de test. `npm run test:all` enchaîne les suites rapides puis la suite PostgreSQL. Ne lancez jamais ces tests contre une base de développement ou de production.
 
 ## Sécurité
