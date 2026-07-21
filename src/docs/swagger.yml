@@ -1,333 +1,517 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
   title: Morocco Medication API
-  description: API for managing Moroccan medications, reimbursements, manufacturers, and active ingredients.
   version: 1.0.0
-
+  description: |
+    API REST de consultation publique et d'administration sécurisée du catalogue
+    marocain des médicaments. Les opérations portant la mention ADMIN exigent un
+    JWT Bearer dont le rôle est ADMIN. Le scheduler CNOPS est interne, activable
+    par environnement, et n'expose pas de route HTTP propre.
 servers:
-  - url: /api/v1
-    description: Base API URL
-
+  - url: /
+    description: Same origin
+tags:
+  - name: Auth
+  - name: Medications
+  - name: Manufacturers
+  - name: Categories
+  - name: Active Ingredients
+  - name: Medication Active Ingredients
+  - name: Organizations
+  - name: Regimes
+  - name: Reimbursements
+  - name: Medication Prices
+  - name: Sources
+  - name: Source Resources
+  - name: Official Documents
+  - name: Sync Jobs
+  - name: Import
+  - name: Sync
 components:
-  schemas:
-    SuccessResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-        message:
-          type: string
-          example: Operation completed successfully
-        data:
-          type: object
-        meta:
-          type: object
-          properties:
-            total:
-              type: integer
-            page:
-              type: integer
-            limit:
-              type: integer
-            
-    ErrorResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: error
-        message:
-          type: string
-          example: Validation failed
-        errors:
-          type: array
-          items:
-            type: object
-
-    Medication:
-      type: object
-      properties:
-        id: { type: integer }
-        code: { type: string, nullable: true }
-        name: { type: string }
-        form: { type: string, nullable: true }
-        presentation: { type: string, nullable: true }
-        publicPrice: { type: number, nullable: true }
-        hospitalPrice: { type: number, nullable: true }
-        manufacturerId: { type: integer, nullable: true }
-        categoryId: { type: integer, nullable: true }
-
-    Organization:
-      type: object
-      properties:
-        id: { type: integer }
-        code: { type: string }
-        name: { type: string }
-        website: { type: string, nullable: true }
-        phone: { type: string, nullable: true }
-
-    Manufacturer:
-      type: object
-      properties:
-        id: { type: integer }
-        name: { type: string }
-        country: { type: string, nullable: true }
-
-    Category:
-      type: object
-      properties:
-        id: { type: integer }
-        name: { type: string }
-        description: { type: string, nullable: true }
-
-    ActiveIngredient:
-      type: object
-      properties:
-        id: { type: integer }
-        name: { type: string }
-
-    Reimbursement:
-      type: object
-      properties:
-        id: { type: integer }
-        reimbursementBase: { type: number, nullable: true }
-        reimbursementRate: { type: number, nullable: true }
-        referencePrice: { type: number, nullable: true }
-        conditions: { type: string, nullable: true }
-        medicationId: { type: integer }
-        organizationId: { type: integer }
-
-    ImportHistory:
-      type: object
-      properties:
-        id: { type: integer }
-        filename: { type: string }
-        status: { type: string }
-        recordsProcessed: { type: integer }
-        errorsCount: { type: integer }
-
-  parameters:
-    pageParam:
-      name: page
-      in: query
-      description: Page number for pagination
-      schema: { type: integer, default: 1 }
-    limitParam:
-      name: limit
-      in: query
-      description: Number of items per page
-      schema: { type: integer, default: 10 }
-    sortByParam:
-      name: sortBy
-      in: query
-      description: Field to sort by
-      schema: { type: string, default: id }
-    orderParam:
-      name: order
-      in: query
-      description: Sort order (asc or desc)
-      schema: { type: string, enum: [asc, desc], default: desc }
-
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token returned by login or registration.
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+    search:
+      name: search
+      in: query
+      schema: { type: string, maxLength: 255 }
+    sortBy:
+      name: sortBy
+      in: query
+      schema: { type: string }
+    order:
+      name: order
+      in: query
+      schema: { type: string, enum: [asc, desc], default: desc }
+  responses:
+    BadRequest: { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Unauthorized: { description: Authentication required or token invalid, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Forbidden: { description: ADMIN role required, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Conflict: { description: Unique or relationship conflict, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    TooLarge: { description: Uploaded payload is too large, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    UnsupportedMediaType: { description: Only a valid XLSX file is accepted, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    InternalError: { description: Unexpected server error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  schemas:
+    Error:
+      type: object
+      required: [status, message]
+      properties:
+        status: { type: string, enum: [error], example: error }
+        message: { type: string, example: Resource not found }
+        errors: { type: array, items: { type: object }, nullable: true }
+    Success:
+      type: object
+      required: [status, message, data]
+      properties:
+        status: { type: string, enum: [success], example: success }
+        message: { type: string }
+        data: { nullable: true }
+        meta:
+          type: object
+          properties:
+            total: { type: integer }
+            page: { type: integer }
+            limit: { type: integer }
+    User:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        email: { type: string, format: email, example: admin@example.ma }
+        name: { type: string, nullable: true }
+        role: { type: string, enum: [ADMIN, USER] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accessToken: { type: string, example: eyJhbGciOiJIUzI1NiJ9... }
+        refreshToken: { type: string, example: eyJhbGciOiJIUzI1NiJ9... }
+    Manufacturer:
+      type: object
+      required: [name]
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 255 }
+        country: { type: string, nullable: true, maxLength: 255 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Category:
+      type: object
+      required: [name]
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, nullable: true }
+    ActiveIngredient:
+      type: object
+      required: [name]
+      properties: { id: { type: integer }, name: { type: string, maxLength: 255 } }
+    Source:
+      type: object
+      required: [code, name]
+      properties:
+        id: { type: integer }
+        code: { type: string, maxLength: 255, example: CNOPS }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, nullable: true }
+        website: { type: string, format: uri, nullable: true }
+    SourceResource:
+      type: object
+      required: [name, sourceId]
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 255 }
+        url: { type: string, format: uri, nullable: true }
+        fileHash: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        sourceId: { type: integer }
+        source: { $ref: '#/components/schemas/Source' }
+    OfficialDocument:
+      type: object
+      required: [title]
+      properties:
+        id: { type: integer }
+        title: { type: string, maxLength: 255 }
+        reference: { type: string, nullable: true }
+        url: { type: string, format: uri, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+    Organization:
+      type: object
+      required: [code, name]
+      properties:
+        id: { type: integer }
+        code: { type: string, maxLength: 255, example: CNOPS }
+        name: { type: string, maxLength: 255 }
+        website: { type: string, format: uri, nullable: true }
+        phone: { type: string, nullable: true }
+    Regime:
+      type: object
+      required: [code, name]
+      properties: { id: { type: integer }, code: { type: string }, name: { type: string }, description: { type: string, nullable: true } }
+    MedicationPrice:
+      type: object
+      required: [medicationId]
+      properties:
+        id: { type: integer }
+        medicationId: { type: integer }
+        publicPrice: { type: number, minimum: 0, nullable: true }
+        hospitalPrice: { type: number, minimum: 0, nullable: true }
+        effectiveDate: { type: string, format: date-time, nullable: true }
+        medication: { $ref: '#/components/schemas/Medication' }
+    MedicationIngredient:
+      type: object
+      required: [medicationId, activeIngredientId]
+      properties:
+        id: { type: integer }
+        medicationId: { type: integer }
+        activeIngredientId: { type: integer }
+        dosage: { type: string, nullable: true }
+        activeIngredient: { $ref: '#/components/schemas/ActiveIngredient' }
+    Reimbursement:
+      type: object
+      required: [medicationId, organizationId]
+      properties:
+        id: { type: integer }
+        medicationId: { type: integer }
+        organizationId: { type: integer }
+        regimeId: { type: integer, nullable: true }
+        documentId: { type: integer, nullable: true }
+        reimbursementBase: { type: number, minimum: 0, nullable: true }
+        reimbursementRate: { type: number, minimum: 0, maximum: 100, nullable: true }
+        referencePrice: { type: number, minimum: 0, nullable: true }
+        conditions: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+        medication: { $ref: '#/components/schemas/Medication' }
+        organization: { $ref: '#/components/schemas/Organization' }
+        regime: { $ref: '#/components/schemas/Regime' }
+        document: { $ref: '#/components/schemas/OfficialDocument' }
+    Medication:
+      type: object
+      required: [name]
+      properties:
+        id: { type: integer }
+        code: { type: string, nullable: true, maxLength: 100 }
+        name: { type: string, maxLength: 255, example: Paracetamol 500 mg }
+        form: { type: string, nullable: true }
+        presentation: { type: string, nullable: true }
+        dosageUnit: { type: string, nullable: true }
+        isGeneric: { type: boolean, default: false }
+        status: { type: string, enum: [ACTIVE, ARCHIVED], default: ACTIVE }
+        manufacturerId: { type: integer, nullable: true }
+        categoryId: { type: integer, nullable: true }
+        sourceId: { type: integer, nullable: true }
+        manufacturer: { $ref: '#/components/schemas/Manufacturer' }
+        category: { $ref: '#/components/schemas/Category' }
+        source: { $ref: '#/components/schemas/Source' }
+        prices: { type: array, items: { $ref: '#/components/schemas/MedicationPrice' } }
+        ingredients: { type: array, items: { $ref: '#/components/schemas/MedicationIngredient' } }
+        reimbursements: { type: array, items: { $ref: '#/components/schemas/Reimbursement' } }
+    SyncJob:
+      type: object
+      required: [status, sourceId]
+      properties:
+        id: { type: integer }
+        status: { type: string, example: SYNC_SUCCESS }
+        sourceId: { type: integer }
+        resourceId: { type: integer, nullable: true }
+        recordsRead: { type: integer, minimum: 0 }
+        recordsValid: { type: integer, minimum: 0 }
+        recordsRejected: { type: integer, minimum: 0 }
+        recordsCreated: { type: integer, minimum: 0 }
+        recordsUpdated: { type: integer, minimum: 0 }
+        recordsDuplicates: { type: integer, minimum: 0 }
+        errorsCount: { type: integer, minimum: 0 }
+        errorDetails: { type: string, nullable: true }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+        source: { $ref: '#/components/schemas/Source' }
+        resource: { $ref: '#/components/schemas/SourceResource' }
 paths:
-  /import/excel:
+  /api/v1/auth/register:
     post:
-      summary: Upload an Excel file
-      description: Parse an Excel file to upsert medications and related entities synchronously.
-      tags:
-        - Import
+      tags: [Auth]
+      summary: Public registration; the server always assigns USER
       requestBody:
         required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: .xlsx file to upload
-      responses:
-        '200':
-          description: Import Processed Successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
-        '400':
-          description: Bad Request (File missing)
-
-  /medications:
-    get:
-      summary: Get all medications
-      tags: [Medications]
-      parameters:
-        - $ref: '#/components/parameters/pageParam'
-        - $ref: '#/components/parameters/limitParam'
-        - $ref: '#/components/parameters/sortByParam'
-        - $ref: '#/components/parameters/orderParam'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
+        content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string, format: email, example: user@example.ma }, password: { type: string, minLength: 8, maxLength: 128 }, name: { type: string } } } } }
+      responses: { '201': { description: Registered, content: { application/json: { schema: { $ref: '#/components/schemas/Success' } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/auth/login:
     post:
-      summary: Create a medication
-      tags: [Medications]
+      tags: [Auth]
+      summary: Issue access and refresh tokens
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Medication'
-      responses:
-        '201':
-          description: Created
-
-  /medications/{id}:
+        content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string } } } } }
+      responses: { '200': { description: Authenticated, content: { application/json: { schema: { $ref: '#/components/schemas/Success' } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: Rotate a refresh token
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } } } }
+      responses: { '200': { description: Tokens rotated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the caller's refresh token
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Logged out }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/auth/me:
     get:
-      summary: Get medication by ID
+      tags: [Auth]
+      summary: Current access-token identity
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Current user }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/auth/users/{id}/role:
+    patch:
+      tags: [Auth]
+      summary: Change a user role (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [role], properties: { role: { type: string, enum: [ADMIN, USER] } } } } }
+      responses: { '200': { description: Role updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/medications:
+    get:
       tags: [Medications]
+      summary: Public enriched medication list
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        '200':
-          description: OK
-        '404':
-          description: Not Found
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/limit' }
+        - { $ref: '#/components/parameters/search' }
+        - { $ref: '#/components/parameters/sortBy' }
+        - { $ref: '#/components/parameters/order' }
+        - { name: status, in: query, schema: { type: string, enum: [ACTIVE, ARCHIVED] } }
+        - { name: manufacturerId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: categoryId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: generic, in: query, schema: { type: boolean } }
+        - { name: ingredient, in: query, schema: { type: string } }
+        - { name: organizationId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: reimbursable, in: query, schema: { type: boolean } }
+      responses: { '200': { description: Enriched medications and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } }
+    post:
+      tags: [Medications]
+      summary: Create medication (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Medication' } } }
+      responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/medications/{id}:
+    get:
+      tags: [Medications]
+      summary: Public enriched medication detail
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Medication with manufacturer, category, source, prices, ingredients and reimbursements }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
     put:
-      summary: Update a medication
       tags: [Medications]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Medication'
-      responses:
-        '200':
-          description: Updated
+      summary: Replace medication fields (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Medication' } } } }
+      responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
     delete:
-      summary: Delete a medication
       tags: [Medications]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        '204':
-          description: Deleted
-
-  /organizations:
+      summary: Delete medication (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/medication-ingredients:
     get:
-      summary: Get all organizations
-      tags: [Organizations]
-      parameters:
-        - $ref: '#/components/parameters/pageParam'
-        - $ref: '#/components/parameters/limitParam'
-        - $ref: '#/components/parameters/sortByParam'
-        - $ref: '#/components/parameters/orderParam'
-      responses:
-        '200':
-          description: OK
+      tags: [Medication Active Ingredients]
+      summary: Public medication/active-ingredient links
+      parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }]
+      responses: { '200': { description: Links }, '500': { $ref: '#/components/responses/InternalError' } }
     post:
-      summary: Create organization
-      tags: [Organizations]
+      tags: [Medication Active Ingredients]
+      summary: Create link (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MedicationIngredient' } } } }
+      responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/medication-ingredients/{id}:
+    get:
+      tags: [Medication Active Ingredients]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Link }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    put:
+      tags: [Medication Active Ingredients]
+      summary: Update link (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MedicationIngredient' } } } }
+      responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } }
+    delete:
+      tags: [Medication Active Ingredients]
+      summary: Delete link (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/manufacturers: &manufacturerCollection
+    get: { tags: [Manufacturers], summary: Public manufacturer list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Manufacturers and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Manufacturers], summary: Create manufacturer (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Manufacturer' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/manufacturers/{id}: &manufacturerItem
+    get: { tags: [Manufacturers], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Manufacturer }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Manufacturers], summary: Update manufacturer (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Manufacturer' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Manufacturers], summary: Replace manufacturer (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Manufacturer' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Manufacturers], summary: Delete manufacturer (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/categories: &categoryCollection
+    get: { tags: [Categories], summary: Public category list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Categories and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Categories], summary: Create category (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Category' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/categories/{id}: &categoryItem
+    get: { tags: [Categories], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Category }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Categories], summary: Update category (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Category' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Categories], summary: Replace category (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Category' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Categories], summary: Delete category (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/active-ingredients: &ingredientCollection
+    get: { tags: [Active Ingredients], summary: Public active ingredient list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Active ingredients and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Active Ingredients], summary: Create active ingredient (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ActiveIngredient' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/active-ingredients/{id}: &ingredientItem
+    get: { tags: [Active Ingredients], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Active ingredient }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Active Ingredients], summary: Update active ingredient (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ActiveIngredient' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Active Ingredients], summary: Replace active ingredient (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ActiveIngredient' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Active Ingredients], summary: Delete active ingredient (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/organizations: &organizationCollection
+    get: { tags: [Organizations], summary: Public organization list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Organizations and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Organizations], summary: Create organization (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/organizations/{id}: &organizationItem
+    get: { tags: [Organizations], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Organization }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Organizations], summary: Update organization (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Organizations], summary: Replace organization (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Organizations], summary: Delete organization (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/regimes: &regimeCollection
+    get: { tags: [Regimes], summary: Public regime list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Regimes and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Regimes], summary: Create regime (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Regime' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/regimes/{id}: &regimeItem
+    get: { tags: [Regimes], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Regime }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Regimes], summary: Update regime (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Regime' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Regimes], summary: Replace regime (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Regime' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Regimes], summary: Delete regime (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/medication-prices: &priceCollection
+    get: { tags: [Medication Prices], summary: Public medication-price list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Prices and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Medication Prices], summary: Create medication price (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MedicationPrice' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/medication-prices/{id}: &priceItem
+    get: { tags: [Medication Prices], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Medication price and medication }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Medication Prices], summary: Update medication price (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MedicationPrice' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Medication Prices], summary: Replace medication price (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MedicationPrice' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Medication Prices], summary: Delete medication price (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/reimbursements: &reimbursementCollection
+    get: { tags: [Reimbursements], summary: Public reimbursement list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Reimbursements and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Reimbursements], summary: Create reimbursement (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Reimbursement' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/reimbursements/{id}: &reimbursementItem
+    get: { tags: [Reimbursements], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Reimbursement with relations }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Reimbursements], summary: Update reimbursement (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Reimbursement' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Reimbursements], summary: Replace reimbursement (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Reimbursement' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Reimbursements], summary: Archive reimbursement (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Archived }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/sources: &sourceCollection
+    get: { tags: [Sources], summary: Public source list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Sources and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Sources], summary: Create source (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Source' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/sources/{id}: &sourceItem
+    get: { tags: [Sources], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Source }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Sources], summary: Update source (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Source' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Sources], summary: Replace source (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Source' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Sources], summary: Delete source (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/source-resources: &resourceCollection
+    get: { tags: [Source Resources], summary: Public source-resource list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Source resources and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Source Resources], summary: Create source resource (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SourceResource' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/source-resources/{id}: &resourceItem
+    get: { tags: [Source Resources], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Source resource with source }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Source Resources], summary: Update source resource (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SourceResource' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Source Resources], summary: Replace source resource (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SourceResource' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Source Resources], summary: Delete source resource (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/official-documents: &documentCollection
+    get: { tags: [Official Documents], summary: Public official-document list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/search' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Documents and pagination metadata }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Official Documents], summary: Create official document (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OfficialDocument' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/official-documents/{id}: &documentItem
+    get: { tags: [Official Documents], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Official document }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Official Documents], summary: Update official document (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OfficialDocument' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Official Documents], summary: Replace official document (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OfficialDocument' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Official Documents], summary: Delete official document (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/sync-jobs: &jobCollection
+    get: { tags: [Sync Jobs], summary: Public synchronization job list, parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/sortBy' }, { $ref: '#/components/parameters/order' }], responses: { '200': { description: Sync jobs with source/resource relations }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    post: { tags: [Sync Jobs], summary: Create sync job record (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SyncJob' } } } }, responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/sync-jobs/{id}: &jobItem
+    get: { tags: [Sync Jobs], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: Sync job with source/resource }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    patch: { tags: [Sync Jobs], summary: Update sync job record (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SyncJob' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    put: { tags: [Sync Jobs], summary: Replace sync job record (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SyncJob' } } } }, responses: { '200': { description: Updated }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+    delete: { tags: [Sync Jobs], summary: Delete sync job record (ADMIN), x-required-role: ADMIN, security: [{ BearerAuth: [] }], parameters: [{ $ref: '#/components/parameters/id' }], responses: { '204': { description: Deleted }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } } }
+  /api/v1/import/excel:
+    post:
+      tags: [Import]
+      summary: Import an XLSX medication file (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Organization'
-      responses:
-        '201':
-          description: Created
-
-  /reimbursements:
+        content: { multipart/form-data: { schema: { type: object, required: [file], properties: { file: { type: string, format: binary, description: XLSX file, not: { type: string } } } } } }
+      responses: { '200': { description: Import completed or partially completed }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '413': { $ref: '#/components/responses/TooLarge' }, '415': { $ref: '#/components/responses/UnsupportedMediaType' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/cnops:
+    post:
+      tags: [Sync]
+      summary: Trigger CNOPS synchronization (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Synchronization completed or skipped }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/cnss:
+    post:
+      tags: [Sync]
+      summary: Report CNSS synchronization availability (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Explicit non-automatable/source status }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/anam:
+    post:
+      tags: [Sync]
+      summary: Report ANAM synchronization availability (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Explicit non-automatable/source status }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/all:
+    post:
+      tags: [Sync]
+      summary: Trigger all configured source synchronizations (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Per-source tracking result }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/status:
     get:
-      summary: Get all reimbursements
-      tags: [Reimbursements]
-      parameters:
-        - $ref: '#/components/parameters/pageParam'
-        - $ref: '#/components/parameters/limitParam'
-        - $ref: '#/components/parameters/sortByParam'
-        - $ref: '#/components/parameters/orderParam'
-      responses:
-        '200':
-          description: OK
-
-  /sync/cnops:
-    post:
-      summary: Trigger CNOPS Sync
       tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Sync completed
-
-  /sync/cnss:
-    post:
-      summary: Trigger CNSS Sync
-      tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Sync completed
-
-  /sync/anam:
-    post:
-      summary: Trigger ANAM Sync
-      tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Sync completed
-
-  /sync/all:
-    post:
-      summary: Trigger All Syncs
-      tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Sync completed
-
-  /sync/status:
+      summary: Latest synchronization status per source (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: Sources with latest SyncJob }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/sync/history:
     get:
-      summary: Get Sync Status
       tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Status retrieved
-
-  /sync/history:
-    get:
-      summary: Get Sync History
-      tags: [Sync]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: History retrieved
+      summary: Synchronization history (ADMIN)
+      x-required-role: ADMIN
+      security: [{ BearerAuth: [] }]
+      responses: { '200': { description: SyncJob records with source and resource }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
