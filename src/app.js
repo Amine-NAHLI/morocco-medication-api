@@ -20,6 +20,13 @@ app.use(cors());
 // API v1 routes
 app.use('/api/v1', routes);
 
+// Swagger Documentation
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+const path = require('path');
+const swaggerDocument = YAML.load(path.join(__dirname, 'docs', 'swagger.yml'));
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
 // Send back a 404 error for any unknown api request
 app.use((req, res, next) => {
   next(new ApiError(404, 'Route Not found'));

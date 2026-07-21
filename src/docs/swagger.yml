@@ -1,0 +1,268 @@
+openapi: 3.0.0
+info:
+  title: Morocco Medication API
+  description: API for managing Moroccan medications, reimbursements, manufacturers, and active ingredients.
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: Base API URL
+
+components:
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          example: Operation completed successfully
+        data:
+          type: object
+        meta:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+            
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          example: Validation failed
+        errors:
+          type: array
+          items:
+            type: object
+
+    Medication:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string, nullable: true }
+        name: { type: string }
+        form: { type: string, nullable: true }
+        presentation: { type: string, nullable: true }
+        publicPrice: { type: number, nullable: true }
+        hospitalPrice: { type: number, nullable: true }
+        manufacturerId: { type: integer, nullable: true }
+        categoryId: { type: integer, nullable: true }
+
+    Organization:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        website: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+
+    Manufacturer:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        country: { type: string, nullable: true }
+
+    Category:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+
+    ActiveIngredient:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+
+    Reimbursement:
+      type: object
+      properties:
+        id: { type: integer }
+        reimbursementBase: { type: number, nullable: true }
+        reimbursementRate: { type: number, nullable: true }
+        referencePrice: { type: number, nullable: true }
+        conditions: { type: string, nullable: true }
+        medicationId: { type: integer }
+        organizationId: { type: integer }
+
+    ImportHistory:
+      type: object
+      properties:
+        id: { type: integer }
+        filename: { type: string }
+        status: { type: string }
+        recordsProcessed: { type: integer }
+        errorsCount: { type: integer }
+
+  parameters:
+    pageParam:
+      name: page
+      in: query
+      description: Page number for pagination
+      schema: { type: integer, default: 1 }
+    limitParam:
+      name: limit
+      in: query
+      description: Number of items per page
+      schema: { type: integer, default: 10 }
+    sortByParam:
+      name: sortBy
+      in: query
+      description: Field to sort by
+      schema: { type: string, default: id }
+    orderParam:
+      name: order
+      in: query
+      description: Sort order (asc or desc)
+      schema: { type: string, enum: [asc, desc], default: desc }
+
+paths:
+  /import/excel:
+    post:
+      summary: Upload an Excel file
+      description: Parse an Excel file to upsert medications and related entities synchronously.
+      tags:
+        - Import
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: .xlsx file to upload
+      responses:
+        '200':
+          description: Import Processed Successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad Request (File missing)
+
+  /medications:
+    get:
+      summary: Get all medications
+      tags: [Medications]
+      parameters:
+        - $ref: '#/components/parameters/pageParam'
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/sortByParam'
+        - $ref: '#/components/parameters/orderParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    post:
+      summary: Create a medication
+      tags: [Medications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Medication'
+      responses:
+        '201':
+          description: Created
+
+  /medications/{id}:
+    get:
+      summary: Get medication by ID
+      tags: [Medications]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update a medication
+      tags: [Medications]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Medication'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete a medication
+      tags: [Medications]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Deleted
+
+  /organizations:
+    get:
+      summary: Get all organizations
+      tags: [Organizations]
+      parameters:
+        - $ref: '#/components/parameters/pageParam'
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/sortByParam'
+        - $ref: '#/components/parameters/orderParam'
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create organization
+      tags: [Organizations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Organization'
+      responses:
+        '201':
+          description: Created
+
+  /reimbursements:
+    get:
+      summary: Get all reimbursements
+      tags: [Reimbursements]
+      parameters:
+        - $ref: '#/components/parameters/pageParam'
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/sortByParam'
+        - $ref: '#/components/parameters/orderParam'
+      responses:
+        '200':
+          description: OK

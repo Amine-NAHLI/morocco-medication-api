@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "jest"
+    "test": "jest --coverage --detectOpenHandles --forceExit"
   },
   "repository": {
     "type": "git",
@@ -43,6 +43,7 @@
   "devDependencies": {
     "eslint": "^10.7.0",
     "jest": "^30.4.2",
+    "jest-mock-extended": "^4.0.1",
     "nodemon": "^3.1.14",
     "prettier": "^3.9.6",
     "supertest": "^7.2.2",
