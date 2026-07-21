@@ -12,14 +12,14 @@ const adminToken = jwt.sign(
 );
 
 const entities = [
-  { name: 'Organization', path: '/api/v1/organizations', model: 'managingOrganization' },
-  { name: 'Manufacturer', path: '/api/v1/manufacturers', model: 'manufacturer' },
-  { name: 'Category', path: '/api/v1/categories', model: 'category' },
-  { name: 'ActiveIngredient', path: '/api/v1/active-ingredients', model: 'activeIngredient' },
-  { name: 'Medication', path: '/api/v1/medications', model: 'medication' },
-  { name: 'MedicationIngredient', path: '/api/v1/medication-ingredients', model: 'medicationIngredient' },
-  { name: 'Reimbursement', path: '/api/v1/reimbursements', model: 'reimbursement' },
-  { name: 'ImportHistory', path: '/api/v1/import-histories', model: 'syncJob' },
+  { name: 'Organization', path: '/api/v1/organizations', model: 'managingOrganization', payload: { code: 'CNOPS', name: 'CNOPS' } },
+  { name: 'Manufacturer', path: '/api/v1/manufacturers', model: 'manufacturer', payload: { name: 'Lab test' } },
+  { name: 'Category', path: '/api/v1/categories', model: 'category', payload: { name: 'Analgesics' } },
+  { name: 'ActiveIngredient', path: '/api/v1/active-ingredients', model: 'activeIngredient', payload: { name: 'Paracetamol' } },
+  { name: 'Medication', path: '/api/v1/medications', model: 'medication', payload: { name: 'Paracetamol 500mg' } },
+  { name: 'MedicationIngredient', path: '/api/v1/medication-ingredients', model: 'medicationIngredient', payload: { medicationId: 1, activeIngredientId: 1 } },
+  { name: 'Reimbursement', path: '/api/v1/reimbursements', model: 'reimbursement', payload: { medicationId: 1, organizationId: 1 } },
+  { name: 'SyncJob', path: '/api/v1/sync-jobs', model: 'syncJob', payload: { status: 'PENDING', sourceId: 1 } },
 ];
 
 describe('Generic CRUD API Tests', () => {
@@ -61,7 +61,7 @@ describe('Generic CRUD API Tests', () => {
         const res = await request(app)
           .post(entity.path)
           .set('Authorization', `Bearer ${adminToken}`)
-          .send({});
+          .send(entity.payload);
         expect(res.statusCode).toBe(201);
       });
 
@@ -75,7 +75,7 @@ describe('Generic CRUD API Tests', () => {
         const res = await request(app)
           .put(`${entity.path}/1`)
           .set('Authorization', `Bearer ${adminToken}`)
-          .send({});
+          .send(entity.payload);
         expect(res.statusCode).toBe(200);
       });
 

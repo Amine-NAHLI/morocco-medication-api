@@ -11,8 +11,19 @@ const create = catchAsync(async (req, res) => {
 
 const findAll = catchAsync(async (req, res) => {
   const pagination = buildPagination(req.query);
-  const orderBy = buildSorting(req.query);
-  const where = {}; // Add specific search/filters here later
+  const orderBy = buildSorting(req.query, ['name', 'code', 'createdAt', 'updatedAt', 'isGeneric', 'status']);
+  const reimbursementFilters = [];
+  if (req.query.organizationId) reimbursementFilters.push({ reimbursements: { some: { organizationId: Number(req.query.organizationId), status: 'ACTIVE' } } });
+  if (req.query.reimbursable === 'true') reimbursementFilters.push({ reimbursements: { some: { status: 'ACTIVE' } } });
+  const where = {
+    ...(req.query.status ? { status: req.query.status } : {}),
+    ...(req.query.manufacturerId ? { manufacturerId: Number(req.query.manufacturerId) } : {}),
+    ...(req.query.categoryId ? { categoryId: Number(req.query.categoryId) } : {}),
+    ...(req.query.generic !== undefined ? { isGeneric: req.query.generic === 'true' } : {}),
+    ...(req.query.search ? { name: { contains: req.query.search, mode: 'insensitive' } } : {}),
+    ...(req.query.ingredient ? { ingredients: { some: { activeIngredient: { name: { contains: req.query.ingredient, mode: 'insensitive' } } } } } : {}),
+    ...(reimbursementFilters.length ? { AND: reimbursementFilters } : {}),
+  };
   
   const result = await medicationService.findAll({ ...pagination, orderBy, where });
   formatSuccess(res, result.data, 'Medications retrieved successfully', 200, {

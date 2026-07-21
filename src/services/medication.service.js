@@ -6,11 +6,11 @@ class MedicationService {
   }
 
   async findAll(params) {
-    return medicationRepository.findAll(params);
+    return medicationRepository.findDetailed(params);
   }
 
   async findById(id) {
-    return medicationRepository.findById(id);
+    return medicationRepository.findDetailedById(id);
   }
 
   async update(id, data) {
