@@ -8,6 +8,8 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: env("DATABASE_URL"),
+    // Runtime uses the pooled Neon URL; Prisma CLI uses a direct URL when it is
+    // supplied, while preserving the existing local DATABASE_URL-only workflow.
+    url: process.env.DIRECT_URL || env("DATABASE_URL"),
   },
 });

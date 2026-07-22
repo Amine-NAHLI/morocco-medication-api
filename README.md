@@ -21,12 +21,14 @@ Ne lancez jamais `prisma migrate reset` sur une base partagée ou distante. Aucu
 | Variable | Rôle |
 |---|---|
 | `DATABASE_URL` | Connexion PostgreSQL |
+| `DIRECT_URL` | URL Neon directe utilisée par Prisma CLI en production ; facultative en local |
 | `PORT` | Port HTTP, défaut 3000 |
 | `NODE_ENV` | `development`, `test` ou `production` |
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | Secrets distincts des JWT |
 | `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Durées (`15m`, `7d`, etc.) |
 | `CORS_ORIGINS` | Origines séparées par virgule |
 | `MAX_UPLOAD_SIZE_BYTES` | Taille maximale XLSX, défaut 5 MiB |
+| `CRON_SECRET` | Secret du Cron Vercel CNOPS, au moins 16 caractères aléatoires |
 | `SYNC_SCHEDULER_ENABLED` | Active le scheduler local CNOPS |
 | `SYNC_SCHEDULER_INTERVAL_MS` | Fréquence CNOPS locale |
 
@@ -46,6 +48,19 @@ Catalogue : `medications`, `manufacturers`, `categories`, `active-ingredients`, 
 `POST /api/v1/import/excel` accepte uniquement un XLSX administrateur, vérifie l'archive ZIP et produit un `SyncJob` avec compteurs. La synchronisation CNOPS est déclenchée par `POST /api/v1/sync/cnops`; elle utilise le catalogue CKAN de data.gov.ma, contrôle l'URL, les redirections, le DNS, les délais, la taille et le hash du fichier. CNSS et ANAM restent explicitement non automatisables : aucun export structuré exploitable n'est présent dans ce dépôt.
 
 Le scheduler est local, désactivé par défaut, non actif dans les tests et évite les doublons de synchronisation.
+
+## Déploiement Vercel
+
+Le point d’entrée Vercel `api/index.js` réexporte strictement l’unique application Express de `src/app.js` : aucune route, aucun middleware et aucune instance Express ne sont dupliqués. Le serveur local reste `src/server.js` ; lui seul appelle `app.listen()` et démarre le timer local.
+
+1. Créez un projet Vercel depuis ce dépôt. La commande de build `npm run vercel-build` ne fait que générer Prisma Client ; elle n’exécute jamais de migration ni de seeder.
+2. Configurez les variables de production dans le tableau de bord Vercel : `NODE_ENV=production`, `DATABASE_URL` (URL Neon poolée), `DIRECT_URL` (URL Neon directe), deux secrets JWT distincts d’au moins 32 caractères, `CORS_ORIGINS` avec le ou les domaines publics exacts, et un `CRON_SECRET` aléatoire d’au moins 16 caractères. Ne commitez jamais ces valeurs.
+3. Avant le premier déploiement applicatif, appliquez les migrations existantes une seule fois avec une URL directe et `npx prisma migrate deploy`, depuis un environnement d’administration sécurisé. Ne lancez pas `prisma migrate reset` sur Neon.
+4. `vercel.json` route toutes les requêtes vers l’application Express et planifie `GET /api/cron/cnops` tous les jours à 03:00 UTC. Vercel ajoute `Authorization: Bearer $CRON_SECRET` ; l’endpoint le contrôle à temps constant et ne lance la synchronisation que si `SYNC_SCHEDULER_ENABLED=true`.
+
+La synchronisation manuelle administrateur `POST /api/v1/sync/cnops` reste inchangée. La synchronisation est séquentielle et persistante : si une fonction atteint sa durée maximale, le prochain appel reprend au dernier checkpoint `SyncJob` validé. La configuration fixe une durée Vercel de 300 secondes ; adaptez-la à votre plan et surveillez les exécutions CNOPS dans Vercel et dans l’historique de synchronisation.
+
+`.vercelignore` exclut les tests, rapports, fichier HTML de test et export Neon suivis dans le dépôt : ils restent disponibles localement mais ne sont ni envoyés ni servis par le déploiement de production.
 
 ## Tests et qualité
 

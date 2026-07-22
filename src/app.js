@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const ApiError = require('./utils/ApiError');
 const { errorConverter, errorHandler } = require('./middlewares/error.middleware');
 const routes = require('./routes/api/v1');
+const cronRoutes = require('./routes/cron.routes');
 const { getHttpConfig } = require('./config/env');
 
 const app = express();
@@ -34,6 +35,9 @@ app.use('/api/v1/auth/refresh-token', authLimiter);
 
 // API v1 routes
 app.use('/api/v1', routes);
+
+// Vercel Cron invokes this protected route; the local scheduler remains owned by src/server.js.
+app.use('/api/cron', cronRoutes);
 
 // Swagger Documentation
 const swaggerUi = require('swagger-ui-express');

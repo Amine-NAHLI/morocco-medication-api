@@ -1,0 +1,11 @@
+# Test fixtures, generated reports, and operational backups are not runtime assets.
+coverage
+tests
+test_output.txt
+test_results.json
+test-results.txt
+test-api.html
+docker-compose.test.yml
+scripts
+cnops_metadata.json
+snowy-feather-37117704_production_neondb_2026-07-22_02-54-33.json

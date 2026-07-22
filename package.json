@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "vercel-build": "prisma generate",
     "test": "jest --coverage --detectOpenHandles --forceExit",
     "test:coverage": "jest --coverage --runInBand",
     "test:db:up": "docker compose -f docker-compose.test.yml up -d --wait --wait-timeout 60",
@@ -23,6 +24,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "bugs": {
     "url": "https://github.com/Amine-NAHLI/morocco-medication-api/issues"
   },
