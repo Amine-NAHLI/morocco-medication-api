@@ -59,6 +59,7 @@ describe('Connectors', () => {
   describe('CNOPS Connector', () => {
     beforeEach(() => {
       global.fetch = jest.fn();
+      prismaMock.managingOrganization.upsert.mockResolvedValue({ id: 1 });
     });
 
     afterEach(() => {
@@ -436,6 +437,58 @@ describe('Connectors', () => {
         }));
       });
 
+      it('should map official CNOPS details, ingredient and reimbursement without duplicates', async () => {
+        prismaMock.source.findUnique.mockResolvedValue({ id: 1 });
+        prismaMock.managingOrganization.upsert.mockResolvedValue({ id: 7 });
+        prismaMock.syncJob.create.mockResolvedValue({ id: 1 });
+        prismaMock.sourceResource.findFirst.mockResolvedValue(null);
+        prismaMock.sourceResource.create.mockResolvedValue({ id: 1 });
+        prismaMock.syncJob.update.mockResolvedValue({});
+        prismaMock.$transaction.mockImplementation(async (cb) => cb(prismaMock));
+        prismaMock.medication.findUnique.mockResolvedValue(null);
+        prismaMock.medication.upsert.mockResolvedValue({ id: 12 });
+        prismaMock.medicationPrice.findFirst.mockResolvedValue(null);
+        prismaMock.medicationPrice.create.mockResolvedValue({});
+        prismaMock.activeIngredient.upsert.mockResolvedValue({ id: 20 });
+        prismaMock.medicationIngredient.upsert.mockResolvedValue({});
+        prismaMock.reimbursement.upsert.mockResolvedValue({});
+
+        jest.spyOn(cnopsConnector, 'discoverResources').mockResolvedValue({
+          url: 'https://data.gov.ma/test.xlsx', lastModified: null, name: 'Test', hash: ''
+        });
+        jest.spyOn(cnopsConnector, 'downloadResourceBuffer').mockResolvedValue(Buffer.from('official-columns'));
+        jest.spyOn(cnopsConnector, 'parseResource').mockResolvedValue([{
+          CODE: '6118010116230',
+          NOM: 'ELOXATINE 5 MG/ML',
+          DCI1: 'OXALIPLATINE',
+          DOSAGE1: '200',
+          UNITE_DOSAGE1: 'MG',
+          FORME: 'SOLUTION A DILUER POUR PERFUSION',
+          PRESENTATION: '1 BOITE 1 FLACON 40 ML',
+          PPV: '2,882.00',
+          PH: '2,555.00',
+          PRIX_BR: '2,882.00',
+          PRINCEPS_GENERIQUE: 'P',
+          TAUX_REMBOURSEMENT: '70%',
+        }]);
+
+        await cnopsConnector.syncDatabase();
+
+        expect(prismaMock.medication.upsert).toHaveBeenCalledWith(expect.objectContaining({
+          update: expect.objectContaining({
+            form: 'SOLUTION A DILUER POUR PERFUSION',
+            presentation: '1 BOITE 1 FLACON 40 ML',
+            dosageUnit: 'MG',
+          }),
+        }));
+        expect(prismaMock.medicationIngredient.upsert).toHaveBeenCalledWith(expect.objectContaining({
+          create: expect.objectContaining({ medicationId: 12, activeIngredientId: 20, dosage: '200', dosageUnit: 'MG' }),
+        }));
+        expect(prismaMock.reimbursement.upsert).toHaveBeenCalledWith(expect.objectContaining({
+          create: expect.objectContaining({ organizationId: 7, reimbursementRate: 70, referencePrice: 2882 }),
+        }));
+      });
+
       it('should skip price creation if price unchanged', async () => {
         prismaMock.source.findUnique.mockResolvedValue({ id: 1 });
         prismaMock.syncJob.create.mockResolvedValue({ id: 1 });
@@ -461,6 +514,61 @@ describe('Connectors', () => {
         expect(prismaMock.medicationPrice.create).not.toHaveBeenCalled();
       });
 
+      it('resumes from the first uncommitted CNOPS row and advances the checkpoint atomically', async () => {
+        prismaMock.source.findUnique.mockResolvedValue({ id: 1 });
+        prismaMock.syncJob.findFirst.mockResolvedValue({
+          id: 77,
+          status: 'SYNC_IN_PROGRESS',
+          recordsRead: 4,
+          recordsProcessed: 2,
+          recordsCreated: 2,
+          recordsUpdated: 0,
+        });
+        prismaMock.sourceResource.findFirst.mockResolvedValue(null);
+        prismaMock.sourceResource.create.mockResolvedValue({ id: 9 });
+        prismaMock.syncJob.update.mockResolvedValue({});
+        prismaMock.$transaction.mockImplementation(async (cb) => cb(prismaMock));
+        prismaMock.medication.findUnique.mockResolvedValue(null);
+        prismaMock.medication.upsert.mockResolvedValue({ id: 1 });
+        prismaMock.medicationPrice.findFirst.mockResolvedValue(null);
+        prismaMock.medicationPrice.create.mockResolvedValue({});
+
+        jest.spyOn(cnopsConnector, 'discoverResources').mockResolvedValue({
+          url: 'https://data.gov.ma/test.xlsx', lastModified: null, name: 'Test', hash: ''
+        });
+        jest.spyOn(cnopsConnector, 'downloadResourceBuffer').mockResolvedValue(Buffer.from('resumable-file'));
+        jest.spyOn(cnopsConnector, 'parseResource').mockResolvedValue([
+          { CODE: '1', NOM: 'Already committed 1' },
+          { CODE: '2', NOM: 'Already committed 2' },
+          { CODE: '3', NOM: 'Resume here' },
+          { CODE: '4', NOM: 'And finish here' },
+        ]);
+
+        const result = await cnopsConnector.syncDatabase();
+
+        expect(result).toMatchObject({
+          success: true,
+          status: 'SYNC_SUCCESS',
+          summary: { read: 4, created: 4, updated: 0, errors: 0 },
+        });
+        expect(prismaMock.syncJob.create).not.toHaveBeenCalled();
+        expect(prismaMock.medication.upsert).toHaveBeenCalledTimes(2);
+        expect(prismaMock.medication.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+          where: { code: '3' },
+        }));
+        expect(prismaMock.medication.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+          where: { code: '4' },
+        }));
+        expect(prismaMock.syncJob.update).toHaveBeenCalledWith(expect.objectContaining({
+          where: { id: 77 },
+          data: expect.objectContaining({ recordsProcessed: 3 }),
+        }));
+        expect(prismaMock.syncJob.update).toHaveBeenCalledWith(expect.objectContaining({
+          where: { id: 77 },
+          data: expect.objectContaining({ recordsProcessed: 4 }),
+        }));
+      });
+
       it('should skip sync if file hash is identical', async () => {
         prismaMock.source.findUnique.mockResolvedValue({ id: 1 });
         prismaMock.syncJob.create.mockResolvedValue({ id: 1 });
@@ -468,7 +576,7 @@ describe('Connectors', () => {
 
         const testBuffer = Buffer.from('test');
         const hash = require('crypto').createHash('sha256').update(testBuffer).digest('hex');
-        prismaMock.sourceResource.findFirst.mockResolvedValue({ fileHash: hash });
+        prismaMock.sourceResource.findFirst.mockResolvedValue({ fileHash: hash, normalizationVersion: 2 });
 
         jest.spyOn(cnopsConnector, 'discoverResources').mockResolvedValue({
           url: 'https://data.gov.ma/test.xlsx', lastModified: null, name: 'Test', hash: ''
@@ -513,6 +621,13 @@ describe('Connectors', () => {
         const result = await cnopsConnector.syncDatabase();
         expect(result.status).toBe('SYNC_PARTIAL');
         expect(result.summary.errors).toBe(1);
+        expect(prismaMock.sourceResource.create).not.toHaveBeenCalled();
+        expect(prismaMock.syncJob.update).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'SYNC_PARTIAL',
+            recordsProcessed: 1,
+          }),
+        }));
       });
 
       it('should return SYNC_FAILED when all rows fail', async () => {

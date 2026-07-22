@@ -50,11 +50,12 @@ model Source {
 }
 
 model SourceResource {
-  id          Int       @id @default(autoincrement())
-  name        String
-  url         String?
-  fileHash    String?
-  publishedAt DateTime?
+  id                   Int       @id @default(autoincrement())
+  name                 String
+  url                  String?
+  fileHash             String?
+  publishedAt          DateTime?
+  normalizationVersion Int       @default(1)
 
   sourceId Int
   source   Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
@@ -195,8 +196,9 @@ model MedicationPrice {
 }
 
 model MedicationIngredient {
-  id     Int     @id @default(autoincrement())
-  dosage String? // Ex: 500mg, 1g
+  id         Int     @id @default(autoincrement())
+  dosage     String? // Ex: 500, 1
+  dosageUnit String? // Ex: mg, g, ml
 
   medicationId Int
   medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
@@ -250,6 +252,8 @@ model SyncJob {
   recordsCreated    Int     @default(0)
   recordsUpdated    Int     @default(0)
   recordsDuplicates Int     @default(0)
+  // Number of source rows durably committed. CNOPS uses this as its resume checkpoint.
+  recordsProcessed  Int     @default(0)
   errorsCount       Int     @default(0)
   errorDetails      String? // JSON ou détails textuels
 

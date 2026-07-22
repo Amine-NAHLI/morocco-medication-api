@@ -20,6 +20,12 @@ const getColumnValue = (row, aliases) => {
   return entry ? entry[1] : null;
 };
 
+const normalizeText = (value) => {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+};
+
 const parseCnopsPrice = (value) => {
   if (value === null || value === undefined) return null;
 
@@ -41,6 +47,18 @@ const parseCnopsPrice = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+const parseCnopsReimbursementRate = (value) => {
+  const normalizedValue = normalizeText(value);
+  if (!normalizedValue || normalizedValue === '-') return null;
+
+  const normalized = normalizedValue
+    .replace(/\s+/g, '')
+    .replace(/%/g, '')
+    .replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
 const isGenericMedication = (value) => {
   if (value === null || value === undefined) return false;
   const normalized = String(value)
@@ -58,6 +76,7 @@ class CnopsOpenDataConnector extends BaseConnector {
     this.ALLOWED_HOSTNAMES = ['data.gov.ma', 'www.data.gov.ma'];
     this.MAX_REDIRECTS = 5;
     this.MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+    this.NORMALIZATION_VERSION = 2;
   }
 
   async isUrlSafe(urlString) {
@@ -228,9 +247,28 @@ class CnopsOpenDataConnector extends BaseConnector {
         });
       }
 
-      syncJob = await prisma.syncJob.create({
-        data: { sourceId: source.id, status: 'PENDING' }
+      const cnopsOrganization = await prisma.managingOrganization.upsert({
+        where: { code: this.sourceCode },
+        update: {},
+        create: { code: this.sourceCode, name: this.sourceName },
       });
+
+      // A job without completedAt is resumable. Its checkpoint is advanced in the
+      // same transaction as each imported row, so it is always contiguous.
+      syncJob = await prisma.syncJob.findFirst({
+        where: {
+          sourceId: source.id,
+          completedAt: null,
+          status: { in: ['PENDING', 'SYNC_IN_PROGRESS', 'SYNC_PARTIAL', 'SYNC_FAILED'] }
+        },
+        orderBy: { startedAt: 'desc' }
+      });
+
+      if (!syncJob) {
+        syncJob = await prisma.syncJob.create({
+          data: { sourceId: source.id, status: 'PENDING' }
+        });
+      }
 
       const resMeta = await this.discoverResources();
       
@@ -246,7 +284,11 @@ class CnopsOpenDataConnector extends BaseConnector {
         orderBy: { createdAt: 'desc' }
       });
 
-      if (lastSuccessfulResource && lastSuccessfulResource.fileHash === fileHash) {
+      if (
+        lastSuccessfulResource
+        && lastSuccessfulResource.fileHash === fileHash
+        && lastSuccessfulResource.normalizationVersion >= this.NORMALIZATION_VERSION
+      ) {
         await prisma.syncJob.update({
           where: { id: syncJob.id },
           data: { status: 'SOURCE_CHANGED_NO_UPDATE', completedAt: new Date() }
@@ -256,46 +298,99 @@ class CnopsOpenDataConnector extends BaseConnector {
 
       const rawRows = await this.parseResource(buffer);
       
-      let created = 0, updated = 0, errorsCount = 0;
+      // A changed row count is the one source change detectable without storing a
+      // pre-success resource hash. Do not apply an old offset to that file.
+      if (syncJob.recordsRead > 0 && syncJob.recordsRead !== rawRows.length) {
+        await prisma.syncJob.update({
+          where: { id: syncJob.id },
+          data: {
+            status: 'SOURCE_CHANGED',
+            errorDetails: `Cannot resume: source row count changed from ${syncJob.recordsRead} to ${rawRows.length}`
+          }
+        });
+        syncJob = await prisma.syncJob.create({
+          data: { sourceId: source.id, status: 'PENDING' }
+        });
+      }
 
-      for (let i = 0; i < rawRows.length; i++) {
+      const resumeFrom = Math.min(
+        Math.max(0, Number(syncJob.recordsProcessed) || 0),
+        rawRows.length
+      );
+      let created = Number(syncJob.recordsCreated) || 0;
+      let updated = Number(syncJob.recordsUpdated) || 0;
+      let errorsCount = 0;
+
+      await prisma.syncJob.update({
+        where: { id: syncJob.id },
+        data: {
+          status: 'SYNC_IN_PROGRESS',
+          recordsRead: rawRows.length,
+          recordsProcessed: resumeFrom,
+          errorsCount: 0,
+          errorDetails: null
+        }
+      });
+
+      for (let i = resumeFrom; i < rawRows.length; i++) {
         const row = rawRows[i];
         
-        // Current official columns are CODE, NOM, PH and PRINCEPS_GENERIQUE.
         // Keep aliases used by older CNOPS exports for backward compatibility.
-        const code = getColumnValue(row, ['CODE', 'Code', 'Code Medicament', 'code']);
-        const name = getColumnValue(row, ['NOM', 'Nom', 'Nom Commercial', 'Nom_Commercial', 'name']) || 'Inconnu';
-        const isGeneric = isGenericMedication(getColumnValue(row, ['PRINCEPS_GENERIQUE', 'Type']));
+        const code = normalizeText(getColumnValue(row, ['CODE', 'Code', 'Code Medicament', 'code']));
+        const name = normalizeText(getColumnValue(row, ['NOM', 'Nom', 'Nom Commercial', 'Nom_Commercial', 'name'])) || 'Inconnu';
+        const form = normalizeText(getColumnValue(row, ['FORME', 'Forme', 'Form', 'Forme Pharmaceutique']));
+        const presentation = normalizeText(getColumnValue(row, ['PRESENTATION', 'Présentation', 'Presentation']));
+        const dosage = normalizeText(getColumnValue(row, ['DOSAGE1', 'DOSAGE', 'Dosage', 'Dose']));
+        const dosageUnit = normalizeText(getColumnValue(row, ['UNITE_DOSAGE1', 'UNITE_DOSAGE', 'Unite Dosage', 'Unité Dosage', 'Dosage Unit']));
+        const activeIngredientName = normalizeText(getColumnValue(row, ['DCI1', 'DCI', 'Dénomination Commune Internationale', 'Denomination Commune Internationale', 'Active Ingredient', 'Substance Active']));
+        const isGeneric = isGenericMedication(getColumnValue(row, ['PRINCEPS_GENERIQUE', 'Princeps Generique', 'Type']));
+        const ppv = parseCnopsPrice(getColumnValue(row, ['PPV', 'Prix Public']));
+        const phg = parseCnopsPrice(getColumnValue(row, ['PH', 'PHG', 'Prix Hôpital', 'Prix Hopital']));
+        const referencePrice = parseCnopsPrice(getColumnValue(row, ['PRIX_BR', 'PRIX BR', 'Prix BR', 'Prix Reference', 'Prix Référence']));
+        const reimbursementRate = parseCnopsReimbursementRate(getColumnValue(row, ['TAUX_REMBOURSEMENT', 'TAUX REMBOURSEMENT', 'Taux Remboursement', 'Taux', 'Rate']));
         
         if (!code) {
           errorsCount++;
-          continue;
+          const finalStatus = created + updated > 0 ? 'SYNC_PARTIAL' : 'SYNC_FAILED';
+          await prisma.syncJob.update({
+            where: { id: syncJob.id },
+            data: {
+              status: finalStatus,
+              recordsRead: rawRows.length,
+              recordsProcessed: i,
+              recordsCreated: created,
+              recordsUpdated: updated,
+              errorsCount,
+              errorDetails: `CNOPS row ${i + 1} has no medication code`
+            }
+          });
+          return {
+            success: true,
+            status: finalStatus,
+            summary: { read: rawRows.length, created, updated, errors: errorsCount }
+          };
         }
 
         try {
-          await prisma.$transaction(async (tx) => {
+          const wasUpdated = await prisma.$transaction(async (tx) => {
             const existingMed = await tx.medication.findUnique({ where: { code: code.toString() } });
+            const medicationData = {
+              name: name.toString(),
+              isGeneric,
+              sourceId: source.id,
+              ...(form ? { form } : {}),
+              ...(presentation ? { presentation } : {}),
+              ...(dosageUnit ? { dosageUnit } : {}),
+            };
             
             const med = await tx.medication.upsert({
               where: { code: code.toString() },
-              update: {
-                name: name.toString(),
-                isGeneric,
-                sourceId: source.id
-              },
+              update: medicationData,
               create: {
                 code: code.toString(),
-                name: name.toString(),
-                isGeneric,
-                sourceId: source.id
+                ...medicationData,
               }
             });
-
-            if (existingMed) updated++;
-            else created++;
-
-            const ppv = parseCnopsPrice(getColumnValue(row, ['PPV', 'Prix Public']));
-            const phg = parseCnopsPrice(getColumnValue(row, ['PH', 'PHG', 'Prix Hôpital']));
 
             // Fetch the last price
             const lastPrice = await tx.medicationPrice.findFirst({
@@ -317,14 +412,99 @@ class CnopsOpenDataConnector extends BaseConnector {
                 }
               });
             }
+
+            if (activeIngredientName) {
+              const activeIngredient = await tx.activeIngredient.upsert({
+                where: { name: activeIngredientName },
+                update: {},
+                create: { name: activeIngredientName },
+              });
+
+              await tx.medicationIngredient.upsert({
+                where: {
+                  medicationId_activeIngredientId: {
+                    medicationId: med.id,
+                    activeIngredientId: activeIngredient.id,
+                  },
+                },
+                update: {
+                  ...(dosage ? { dosage } : {}),
+                  ...(dosageUnit ? { dosageUnit } : {}),
+                },
+                create: {
+                  medicationId: med.id,
+                  activeIngredientId: activeIngredient.id,
+                  dosage,
+                  dosageUnit,
+                },
+              });
+            }
+
+            if (reimbursementRate !== null || referencePrice !== null) {
+              await tx.reimbursement.upsert({
+                where: {
+                  medicationId_organizationId: {
+                    medicationId: med.id,
+                    organizationId: cnopsOrganization.id,
+                  },
+                },
+                update: {
+                  ...(reimbursementRate !== null ? { reimbursementRate } : {}),
+                  ...(referencePrice !== null ? { referencePrice } : {}),
+                },
+                create: {
+                  medicationId: med.id,
+                  organizationId: cnopsOrganization.id,
+                  reimbursementRate,
+                  referencePrice,
+                },
+              });
+            }
+
+            // The row data and its checkpoint are committed atomically. A process
+            // crash can therefore only leave both unapplied, never one without the other.
+            await tx.syncJob.update({
+              where: { id: syncJob.id },
+              data: {
+                status: 'SYNC_IN_PROGRESS',
+                recordsRead: rawRows.length,
+                recordsProcessed: i + 1,
+                recordsCreated: { increment: existingMed ? 0 : 1 },
+                recordsUpdated: { increment: existingMed ? 1 : 0 },
+                errorsCount: 0,
+                errorDetails: null
+              }
+            });
+
+            return Boolean(existingMed);
           });
+          if (wasUpdated) updated++;
+          else created++;
         } catch (dbError) {
-          logger.error(`Error saving CNOPS row ${i}: ${dbError.message}`);
+          logger.error(`Error saving CNOPS row ${i + 1}: ${dbError.message}`);
           errorsCount++;
+          const finalStatus = created + updated > 0 ? 'SYNC_PARTIAL' : 'SYNC_FAILED';
+          await prisma.syncJob.update({
+            where: { id: syncJob.id },
+            data: {
+              status: finalStatus,
+              recordsRead: rawRows.length,
+              recordsProcessed: i,
+              recordsCreated: created,
+              recordsUpdated: updated,
+              errorsCount,
+              errorDetails: `CNOPS row ${i + 1}: ${dbError.message}`
+            }
+          });
+          return {
+            success: true,
+            status: finalStatus,
+            summary: { read: rawRows.length, created, updated, errors: errorsCount }
+          };
         }
       }
 
-      const finalStatus = errorsCount === 0 ? 'SYNC_SUCCESS' : (created + updated > 0 ? 'SYNC_PARTIAL' : 'SYNC_FAILED');
+      const finalStatus = 'SYNC_SUCCESS';
 
       let resourceId = null;
       if (finalStatus === 'SYNC_SUCCESS') {
@@ -334,6 +514,7 @@ class CnopsOpenDataConnector extends BaseConnector {
             url: resMeta.url,
             fileHash,
             publishedAt: resMeta.lastModified ? new Date(resMeta.lastModified) : null,
+            normalizationVersion: this.NORMALIZATION_VERSION,
             sourceId: source.id
           }
         });
@@ -345,6 +526,7 @@ class CnopsOpenDataConnector extends BaseConnector {
         data: {
           status: finalStatus,
           recordsRead: rawRows.length,
+          recordsProcessed: rawRows.length,
           recordsCreated: created,
           recordsUpdated: updated,
           errorsCount,
@@ -363,7 +545,9 @@ class CnopsOpenDataConnector extends BaseConnector {
       if (syncJob) {
         await prisma.syncJob.update({
           where: { id: syncJob.id },
-          data: { status: 'SYNC_FAILED', errorDetails: error.message, completedAt: new Date() }
+          // Keep the job open: if the process failed after some row commits, its
+          // transactional recordsProcessed checkpoint is still safe to resume.
+          data: { status: 'SYNC_FAILED', errorDetails: error.message }
         });
       }
       return { success: false, status: 'SYNC_FAILED', message: error.message };

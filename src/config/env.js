@@ -1,6 +1,9 @@
 const ApiError = require('../utils/ApiError');
 
-const DEFAULT_CORS_ORIGINS = ['http://localhost:3000'];
+const DEFAULT_CORS_ORIGINS = [
+  'http://127.0.0.1:5500',
+  'http://localhost:5500',
+];
 
 const parsePositiveInt = (value, fallback, name) => {
   const parsed = Number.parseInt(value, 10);

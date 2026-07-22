@@ -22,7 +22,7 @@ afterEach(() => {
 describe('environment configuration', () => {
   test('uses safe development defaults and disabled scheduler defaults', () => {
     expect(env.getAuthConfig()).toMatchObject({ accessExpiresIn: '15m', refreshExpiresIn: '7d' });
-    expect(env.getHttpConfig()).toMatchObject({ corsOrigins: ['http://localhost:3000'], maxUploadSize: 5 * 1024 * 1024, maxPageSize: 100, schedulerEnabled: false });
+    expect(env.getHttpConfig()).toMatchObject({ corsOrigins: ['http://127.0.0.1:5500', 'http://localhost:5500'], maxUploadSize: 5 * 1024 * 1024, maxPageSize: 100, schedulerEnabled: false });
   });
 
   test('parses configured HTTP values and enables the scheduler outside tests', () => {

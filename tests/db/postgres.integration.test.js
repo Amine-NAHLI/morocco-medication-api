@@ -173,7 +173,10 @@ describe('isolated PostgreSQL integration', () => {
       lastModified: '2026-07-21T00:00:00.000Z',
       name: 'Réf des médicaments',
     });
-    jest.spyOn(cnopsConnector, 'downloadResourceBuffer').mockResolvedValue(buffer);
+    jest.spyOn(cnopsConnector, 'downloadResourceBuffer')
+      .mockResolvedValueOnce(buffer)
+      // A changed file hash must still update existing records rather than duplicate them.
+      .mockResolvedValueOnce(Buffer.concat([buffer, Buffer.from([0])]));
 
     const result = await cnopsConnector.syncDatabase();
 
@@ -184,7 +187,12 @@ describe('isolated PostgreSQL integration', () => {
     });
     const medications = await prisma.medication.findMany({
       where: { code: { in: ['6118001230068', '6118010116230'] } },
-      include: { prices: true, source: true },
+      include: {
+        prices: true,
+        source: true,
+        ingredients: { include: { activeIngredient: true } },
+        reimbursements: { include: { organization: true } },
+      },
       orderBy: { code: 'asc' },
     });
     expect(medications).toHaveLength(2);
@@ -196,11 +204,70 @@ describe('isolated PostgreSQL integration', () => {
     });
     expect(medications[0].prices[0]).toMatchObject({ publicPrice: 95, hospitalPrice: null });
     expect(medications[1].prices[0]).toMatchObject({ publicPrice: 2882, hospitalPrice: 2555 });
+    expect(medications[1]).toMatchObject({
+      form: 'SOLUTION A DILUER POUR PERFUSION',
+      presentation: '1 BOITE 1 FLACON 40 ML',
+      dosageUnit: 'MG',
+      ingredients: [{ dosage: '200', dosageUnit: 'MG', activeIngredient: { name: 'OXALIPLATINE' } }],
+      reimbursements: [{ reimbursementRate: 70, referencePrice: 2882, organization: { code: 'CNOPS' } }],
+    });
+
+    const apiResponse = await request(app).get('/api/v1/medications?search=ELOXATINE&limit=10');
+    expect(apiResponse.status).toBe(200);
+    expect(apiResponse.body.data[0]).toMatchObject({
+      dosageUnit: 'MG',
+      ingredients: [{ dosage: '200', dosageUnit: 'MG', activeIngredient: { name: 'OXALIPLATINE' } }],
+      reimbursements: [{ reimbursementRate: 70, referencePrice: 2882, organization: { code: 'CNOPS' } }],
+    });
     expect(await prisma.sourceResource.count()).toBe(1);
 
     const retry = await cnopsConnector.syncDatabase();
-    expect(retry.message).toContain('Skipping sync');
+    expect(retry).toMatchObject({ success: true, summary: { created: 0, updated: 2, errors: 0 } });
     expect(await prisma.medication.count({ where: { source: { is: { code: 'CNOPS' } } } })).toBe(2);
+    expect(await prisma.medicationIngredient.count()).toBe(2);
+    expect(await prisma.reimbursement.count()).toBe(2);
+    expect(await prisma.medicationPrice.count()).toBe(2);
+  });
+
+  test('resumes CNOPS at the first row after its durable SyncJob checkpoint', async () => {
+    const source = await prisma.source.create({ data: { code: 'CNOPS', name: 'CNOPS' } });
+    await prisma.managingOrganization.create({ data: { code: 'CNOPS', name: 'CNOPS' } });
+    await prisma.medication.create({
+      data: { code: '6118001230068', name: 'URO / EAU POUR IRRIGATION', sourceId: source.id }
+    });
+    const resumableJob = await prisma.syncJob.create({
+      data: {
+        sourceId: source.id,
+        status: 'SYNC_IN_PROGRESS',
+        recordsRead: 2,
+        recordsProcessed: 1,
+        recordsCreated: 1,
+      }
+    });
+    const buffer = createOfficialCnopsExtract();
+    jest.spyOn(cnopsConnector, 'discoverResources').mockResolvedValue({
+      url: 'https://data.gov.ma/dataset/referentiel-des-medicaments.xlsx',
+      lastModified: '2026-07-21T00:00:00.000Z',
+      name: 'Réf des médicaments',
+    });
+    jest.spyOn(cnopsConnector, 'downloadResourceBuffer').mockResolvedValue(buffer);
+
+    const result = await cnopsConnector.syncDatabase();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'SYNC_SUCCESS',
+      summary: { read: 2, created: 2, updated: 0, errors: 0 },
+    });
+    expect(await prisma.medication.count({ where: { sourceId: source.id } })).toBe(2);
+    const completedJob = await prisma.syncJob.findUnique({ where: { id: resumableJob.id } });
+    expect(completedJob).toMatchObject({
+      status: 'SYNC_SUCCESS',
+      recordsProcessed: 2,
+      recordsCreated: 2,
+    });
+    expect(completedJob.completedAt).toEqual(expect.any(Date));
+    expect(await prisma.sourceResource.count()).toBe(1);
   });
 
   test('rolls back failed transactions and retains database uniqueness and foreign-key constraints', async () => {

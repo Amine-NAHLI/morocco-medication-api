@@ -23,7 +23,7 @@ app.use(cors({
     if (!origin || httpConfig.corsOrigins.includes(origin)) return callback(null, true);
     return callback(new ApiError(403, 'Origin is not allowed by CORS policy'));
   },
-  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
